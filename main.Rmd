@@ -3,6 +3,8 @@ title: "Tipping points and prejudice: an agent-based model"
 author: "Group 1"
 date: "`r Sys.Date()`"
 output: html_document
+bibliography: references.bib
+csl: apa.csl
 # bibliography: references.bib   (TODO: switch on once references.bib exists)
 ---
 
@@ -11,7 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## 1. Introduction
-<!-- TODO: background on committed minorities, prejudice and tipping points, with citations -->
+Intergroup contact is relevant to understanding prejudice reduction
+[@pettigrew2006].
 
 ## 2. The model
 <!-- TODO (Role 2): describe agents, conversations, committed advocates and the main parameters -->
@@ -48,4 +51,4 @@ shiny::runApp("src/app.R")
 <!-- TODO -->
 
 ## References
-<!-- TODO: bibliography will be generated automatically once references.bib is set up -->
+
