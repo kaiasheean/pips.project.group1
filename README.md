@@ -2,7 +2,12 @@
 
 A simulation app to explore how much an attitude shift in a population is
 impaired by prejudice towards the committed minority advocating for change.
+We investigate whether increasing the proportion of committed advocates 
+produces a tipping point, a threshold beyond which population-level 
+prejudice falls sharply.
+
 Created for the Programming in Psychological Science course (UvA).
+
 
 ## Getting started
 Clone the repository and open `main.Rmd` in RStudio:
