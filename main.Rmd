@@ -3,9 +3,10 @@ title: "Tipping points and prejudice: an agent-based model"
 author: "Group 1"
 date: "`r Sys.Date()`"
 output: html_document
+# Contains the bibliographic entries used for citations.
 bibliography: references.bib
+# Formats citations and the reference list in APA 7th edition style.
 csl: apa.csl
-# bibliography: references.bib   (TODO: switch on once references.bib exists)
 ---
 
 ```{r setup, include=FALSE}
