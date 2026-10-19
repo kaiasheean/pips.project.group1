@@ -11,6 +11,7 @@ csl: apa.csl
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+# Load required packages here once confirmed.
 
 ## 1. Introduction
 Intergroup contact is relevant to understanding prejudice reduction
