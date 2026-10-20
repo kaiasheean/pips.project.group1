@@ -13,7 +13,8 @@
 #the speaker shares their attitude
 
 #if the listener has the same attitude, there is no change
-#if the speaker and listener have different attitudes the hearer takes on the speaker's attitude
+#if the speaker and listener have different attitudes the hearer takes on the speaker's attitude in addition to their
+    #original attitude - so they have mixed attitudes
 #if the hearer has mixed attitudes, then the hearer will drop the attitude that disagrees with 
 #the speaker's attitude
 
@@ -25,8 +26,13 @@ run_model <- function(n = 100,
                       tip_level = 0.5,
                       max_ticks = 5000) {
   
+  # Names for the attitude values
+  PREJUDICED     <- 0
+  NOT_PREJUDICED <- 1
+  BOTH           <- 2
+  
   # Everyone starts with the old norm only (attitude 0)
-  attitude <- rep(0, n)
+  attitude <- rep(PREJUDICED, n)
   
   
   #Generating the committed agents:
@@ -39,7 +45,7 @@ run_model <- function(n = 100,
   non_committed <- !committed
   
   # Committed agents hold only the new norm (attitude 1)
-  attitude[committed] <- 1
+  attitude[committed] <- NOT_PREJUDICED
   
   
   #the for loop to simulate the attitude update rules for each conversation:
@@ -51,22 +57,22 @@ run_model <- function(n = 100,
     hearer  <- pool[sample.int(length(pool), 1)]
     
     # Speaker expresses one attitude (prejudice or non prejudice) (a two-attitude speaker picks one at random)
-    prejudice <- if (attitude[speaker] == 2) sample(0:1, 1) else attitude[speaker]
+    prejudice <- if (attitude[speaker] == BOTH) sample(c(PREJUDICED, NOT_PREJUDICED), 1) else attitude[speaker]
     
     #if the hearer has mixed atttiudes or the attitude has the prejudice attitude
-        #the hearer takes on the prejudice attitude
-    if (attitude[hearer] == 2 || attitude[hearer] == prejudice) {
+    #the hearer takes on the prejudice attitude
+    if (attitude[hearer] == BOTH || attitude[hearer] == prejudice) {
       # hearer already holds the prejudice, so they keep only that one
-      attitude[hearer] <- prejudice
+      if (!committed[hearer]) attitude[hearer] <- prejudice
       # The speaker also collapses, unless committed
       if (!committed[speaker]) attitude[speaker] <- prejudice
     } else {
-      # hearer adopts the new prejudice and now holds both
-      attitude[hearer] <- 2
+      # hearer adopts the new prejudice and now holds both, but not if the hearer is a committed agent
+      if (!committed[hearer]) attitude[hearer] <- BOTH
     }
     
     # Determining the tipping point threshold
-    if (mean(attitude[non_committed] == 1) > tip_level) return(conversation_round)
+    if (mean(attitude[non_committed] == NOT_PREJUDICED) > tip_level) return(conversation_round)
   }
   
   NA   # print NA if the tipping point is never reached
