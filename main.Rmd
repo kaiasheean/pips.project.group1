@@ -36,12 +36,11 @@ We also examine whether prejudice changes the committed minority proportion
 around which a sharp increase in successful adoption occurs (tipping point).
 
 ## 2. The model
-title: "prejudice-tipping-abm: Prejudice and attitude-change tipping points"
 The prejudice-tipping-abm examines how population size, committed minority
 proportion, and prejudice discount affect the spread of pro-immigration 
 attitudes.
 
-##Agents and Inital Attitudes:
+## Agents and Inital Attitudes:
 
 In the proposed initialization, immigrant minority agents hold a
 pro-immigration attitude and remain committed to it throughout the simulation. 
@@ -54,7 +53,7 @@ Agents can hold an anti-immigration attitude, a pro-immigration attitude,
 or both attitudes. The code uses NOT_PREJUDICED to identify the fully 
 pro-immigration state and BOTH to identify the mixed state.
 
-##Independent Variables: 
+## Independent Variables: 
 We vary three model parameters:
 1. Population size (group_n): the total number of agents.
 2. Minority proportion (minority_prop): the proportion of agents belonging 
@@ -79,7 +78,7 @@ Otherwise, an allowed update gives the hearer a mixed attitude. In the former
 case, a non-committed speaker also retains only the communicated attitude; 
 the speaker's update is not gated by hearer_updates.
 
-##Outcome measures
+## Outcome measures
 Adoption proportion is the proportion of non-committed agents who hold the 
 fully pro-immigration attitude. Under the proposed initialisation, these are 
 the initially anti-immigration majority agents. Committed minority agents are 
@@ -106,7 +105,7 @@ conversation round when the adoption criterion is reached. Runs that do not
 reach it are right-censored at the simulation time limit, meaning that the 
 threshold-crossing time is not observed within that period.
 
-##Current implementation and planned measurements
+## Current implementation and planned measurements
 
 The current function returns the first threshold-crossing round and stops 
 the run at that point. If the threshold is not reached within the simulation 
