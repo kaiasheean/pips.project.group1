@@ -5,6 +5,7 @@ library(survival)
 
 set.seed(123)
 
+# create a folder "output" to store results, figures, csv
 out <- "outputs"
 dir.create(out, showWarnings = FALSE)
 
@@ -14,7 +15,7 @@ dir.create(out, showWarnings = FALSE)
 n_agents_levels <- c(100, 200, 500)
 minority_levels <- seq(0.15, 0.35, by = 0.05)
 prej_discount_levels <- seq(0, 1, by = 0.1)
-n_rounds <- 120
+n_round <- 120
 n_repetitions <- 10 # Change to 100 after testing
 
 adopt_thresh <- 0.50
@@ -53,25 +54,18 @@ simulate_one <- function(n_agents, minority_prop,
     
     peer_fraction <- adopted / n_agents
     
-    influence <-
-      (group_n / n_agents) * (1 - prej_discount) +
-      1.7 * peer_fraction
+    influence <- (group_n / n_agents) * (1 - prej_discount) + 1.7 * peer_fraction
     
-    p_switch <- min(
-      0.50,
-      max(0, 0.006 + 0.085 * influence)
-    )
+    p_switch <- min(0.50,max(0, 0.006 + 0.085 * influence))
     
-    n_new <- rbinom(
-      1,
+    n_new <- rbinom(1,
       size = majority_n - adopted,
       prob = p_switch
     )
     
     adopted <- adopted + n_new
     
-    support[round + 1] <-
-      (group_n + adopted) / n_agents
+    support[round + 1] <- (group_n + adopted) / n_agents
   }
   
   # Detect tipping-like acceleration
@@ -86,9 +80,7 @@ simulate_one <- function(n_agents, minority_prop,
         delta[(t - 2 * TIP_WINDOW + 1):(t - TIP_WINDOW)]
       )
       
-      after <- mean(
-        delta[(t - TIP_WINDOW + 1):t]
-      )
+      after <- mean(delta[(t - TIP_WINDOW + 1):t])
       
       if (
         after >= TIP_MULTIPLIER * max(before, 0.0005) &&
@@ -196,7 +188,7 @@ write.csv(
 # ============================================================
 
 summary_data <- dat %>%
-  group_by(minority_proportion, prej_discount) %>%
+  group_by(minority_prop, prej_discount) %>%
   summarise(
     mean_attitude_change = mean(attitude_change_prop),
     sd_attitude_change = sd(attitude_change_prop),
@@ -225,18 +217,39 @@ dat <- dat %>%
   )
 
 
-# Effect of minority proportion
+# Main effects - minority proportion and prejudice discounting
 # H1: A higher committed minority proportion increases attitude change among majority agents.
+# H2: Higher prejudice discounting decreases attitude change among majority agents.
+# H3: Prejudice discounting weakens the positive relationship between minority proportion and attitude change.
 
-model_H1 <- lm(
+# Model 0: Main effects only, no interaction term
+model_attitude_0 <- lm(
   attitude_change_prop ~
-    minority_c + prej_discount_c +
+    minority_c +
+    prej_discount_c +
     factor(n_agents),
   data = dat
 )
 
-summary(model_H1)
+summary(model_attitude_0)
 
+
+# Model 1: with interaction term
+model_attitude_1 <- lm(
+  attitude_change_prop ~
+    minority_c * prej_discount_c +
+    factor(n_agents),
+  data = dat
+)
+
+summary(model_attitude_1)
+
+
+# Compare models
+anova(
+  model_attitude_0,
+  model_attitude_1
+)
 # H1 plot
 plot_H1 <- ggplot(
   summary_data,
@@ -265,11 +278,12 @@ ggsave(
   dpi = 300
 )
 
-# Effect of prejudice discounting
-# H2: Higher prejudice discounting decreases attitude change among majority agents.
+
 
 # Moderating effect of prejudice discounting
 # H3: Prejudice discounting weakens the positive relationship between minority proportion and attitude change.
+
+
 
 
 
