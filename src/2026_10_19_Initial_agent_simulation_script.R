@@ -14,9 +14,13 @@
 
 #if the listener has the same attitude, there is no change
 #if the speaker and listener have different attitudes the hearer takes on the speaker's attitude in addition to their
-    #original attitude - so they have mixed attitudes
+#original attitude - so they have mixed attitudes
 #if the hearer has mixed attitudes, then the hearer will drop the attitude that disagrees with 
 #the speaker's attitude
+
+#NEW: every agent has a group label (committed minority or majority)
+#NEW: a non committed hearer who is spoken to by a minority speaker only updates with probability 
+#(1 - prejudice_discount), otherwise their attitude stays as it is
 
 
 
@@ -24,12 +28,17 @@
 run_model <- function(n = 100,
                       committed_share = 0.1,
                       tip_level = 0.5,
-                      max_ticks = 5000) {
+                      max_ticks = 5000,
+                      prejudice_discount = 0) {   # NEW: 0 = no discount, 1 = never updates
   
   # Names for the attitude values
   PREJUDICED     <- 0
   NOT_PREJUDICED <- 1
   BOTH           <- 2
+  
+  # NEW: Names for the group labels
+  MINORITY_LABEL <- "minority"
+  MAJORITY_LABEL <- "majority"
   
   # Everyone starts with the old norm only (attitude 0)
   attitude <- rep(PREJUDICED, n)
@@ -47,6 +56,10 @@ run_model <- function(n = 100,
   # Committed agents hold only the new norm (attitude 1)
   attitude[committed] <- NOT_PREJUDICED
   
+  # NEW: Assign group labels: committed agents get the minority label, everyone else the majority label
+  group <- rep(MAJORITY_LABEL, n)
+  group[committed] <- MINORITY_LABEL
+  
   
   #the for loop to simulate the attitude update rules for each conversation:
   for (conversation_round in 1:max_ticks) {
@@ -59,16 +72,19 @@ run_model <- function(n = 100,
     # Speaker expresses one attitude (prejudice or non prejudice) (a two-attitude speaker picks one at random)
     prejudice <- if (attitude[speaker] == BOTH) sample(c(PREJUDICED, NOT_PREJUDICED), 1) else attitude[speaker]
     
+    # NEW: If the speaker has the minority label, the hearer only updates with probability (1 - prejudice_discount)
+    hearer_updates <- if (group[speaker] == MINORITY_LABEL) runif(1) >= prejudice_discount else TRUE
+    
     #if the hearer has mixed atttiudes or the attitude has the prejudice attitude
     #the hearer takes on the prejudice attitude
     if (attitude[hearer] == BOTH || attitude[hearer] == prejudice) {
       # hearer already holds the prejudice, so they keep only that one
-      if (!committed[hearer]) attitude[hearer] <- prejudice
+      if (!committed[hearer] && hearer_updates) attitude[hearer] <- prejudice
       # The speaker also collapses, unless committed
       if (!committed[speaker]) attitude[speaker] <- prejudice
     } else {
       # hearer adopts the new prejudice and now holds both, but not if the hearer is a committed agent
-      if (!committed[hearer]) attitude[hearer] <- BOTH
+      if (!committed[hearer] && hearer_updates) attitude[hearer] <- BOTH
     }
     
     # Determining the tipping point threshold
