@@ -217,7 +217,13 @@ dat <- dat %>%
   )
 
 
+# ============================================================
+# Hypotheses testing
+# ============================================================
+
+
 # Main effects - minority proportion and prejudice discounting
+# Interaction - minority proportion * prejudice discounting
 # H1: A higher committed minority proportion increases attitude change among majority agents.
 # H2: Higher prejudice discounting decreases attitude change among majority agents.
 # H3: Prejudice discounting weakens the positive relationship between minority proportion and attitude change.
@@ -331,3 +337,322 @@ ggsave(
   plot_H3,
   width = 10, height = 7, dpi = 300
 )
+
+
+
+#H4 H5 Logistic regression
+# H4: Higher minority proportion increases tipping probability, while prejudice discounting decreases it.
+
+# H5: Higher minority proportion increases majority adoption probability, while prejudice discounting decreases it.
+# Fit logistic regression for binary outcomes (0 = no, 1 = yes).
+# Model 0: Main effects; Model 1: Interaction.
+
+fit_logistic <- function(outcome, interaction = FALSE) {
+  
+  rhs <- if (interaction) {
+    "minority_c * prej_discount_c + factor(n_agents)"
+  } else {
+    "minority_c + prej_discount_c + factor(n_agents)"
+  }
+  
+  formula <- as.formula(paste(outcome, "~", rhs))
+  
+  # A logistic model cannot be estimated with one outcome class
+  if (length(unique(dat[[outcome]])) < 2) {
+    message(outcome, ": only one outcome class.")
+    return(NULL)
+  }
+  
+  model <- glm(
+    formula,
+    data = dat,
+    family = binomial(),
+    control = glm.control(maxit = 100)
+  )
+  
+  if (!isTRUE(model$converged)) {
+    warning(outcome, ": logistic model did not converge.")
+  }
+  
+  return(model)
+}
+
+
+# H4: Tipping occurrence
+
+model_tipping_0 <- fit_logistic(
+  "tipping_reached",
+  interaction = FALSE
+)
+
+model_tipping_1 <- fit_logistic(
+  "tipping_reached",
+  interaction = TRUE
+)
+
+# H5: Majority adoption occurrence
+
+model_adoption_0 <- fit_logistic("adoption_reached", interaction = FALSE)
+
+model_adoption_1 <- fit_logistic("adoption_reached", interaction = TRUE)
+
+#function to display logistic regression results
+
+show_logistic <- function(model) {
+  if (is.null(model)) {
+    cat("Model unavailable.\n")
+  } else {
+    print(summary(model))
+    cat("Converged:", model$converged, "\n")
+  }
+}
+
+# Compare Model 0 and Model 1 using a likelihood-ratio test.
+compare_logistic <- function(model_0, model_1) {
+  if (!is.null(model_0) &&
+      !is.null(model_1) &&
+      isTRUE(model_0$converged) &&
+      isTRUE(model_1$converged)) {
+    
+    print(anova(model_0, model_1, test = "Chisq"))
+    
+  } else {
+    cat("Comparison skipped: model unavailable or not converged.\n")
+  }
+}
+
+show_logistic(model_tipping_0)
+show_logistic(model_tipping_1)
+compare_logistic(model_tipping_0, model_tipping_1)
+
+show_logistic(model_adoption_0)
+show_logistic(model_adoption_1)
+compare_logistic(model_adoption_0, model_adoption_1)
+
+# Cox regression, survival analysis
+# H4-H5: Test how predictors affect time to tipping/adoption.
+# Runs without an event are right-censored at n_round.
+# Model 0: Main effects; Model 1: Interaction.
+
+# Cox proportional hazards regression.
+fit_cox <- function(time_var, event_var, interaction = FALSE) {
+  
+  # skip if no events occurred
+  if (sum(dat[[event_var]]) == 0) {
+    message(event_var, ": no events observed.")
+    return(NULL)
+  }
+  
+  rhs <- if (interaction) {
+    "minority_c * prej_discount_c + factor(n_agents)"
+  } else {
+    "minority_c + prej_discount_c + factor(n_agents)"
+  }
+  
+  formula <- as.formula(
+    paste0(
+      "Surv(", time_var, ", ", event_var, ") ~ ", rhs
+    )
+  )
+  
+  tryCatch(
+    coxph(formula, data = dat),
+    error = function(e) {
+      message("Cox model error: ", conditionMessage(e))
+      NULL
+    }
+  )
+}
+
+# Time to tipping (H4)
+
+model_cox_tipping_0 <- fit_cox("tipping_time", "tipping_reached", FALSE)
+
+model_cox_tipping_1 <- fit_cox("tipping_time", "tipping_reached", TRUE)
+
+# Time to adoption (H5)
+
+model_cox_adoption_0 <- fit_cox("adoption_time", "adoption_reached", FALSE)
+
+model_cox_adoption_1 <- fit_cox("adoption_time", "adoption_reached", TRUE)
+
+# Display model results.
+for (model in list(
+  model_cox_tipping_0, model_cox_tipping_1,
+  model_cox_adoption_0, model_cox_adoption_1
+)) {
+  if (!is.null(model)) print(summary(model))
+}
+
+
+
+# Kaplan-Meier curves
+# Kaplan-Meier: Compare time to tipping/adoption across low, medium, and high prejudice discounting.
+
+# Group prejudice discounting into three levels.
+dat$prej_discount_group <- cut(
+  dat$prej_discount,
+  breaks = c(-0.01, 0.3, 0.7, 1),
+  labels = c("Low", "Medium", "High")
+)
+
+
+# Plot and save Kaplan-Meier survival curves.
+plot_km <- function(time_var, event_var, filename, title) {
+  
+  formula <- as.formula(
+    paste0(
+      "Surv(", time_var, ", ", event_var,
+      ") ~ prej_discount_group"
+    )
+  )
+  
+  fit <- survfit(formula, data = dat)
+  
+  png(file.path(out, filename), width = 1000, height = 700)
+  
+  plot(
+    fit,
+    col = 1:3,
+    lwd = 2,
+    xlab = "Round",
+    ylab = "Probability of no event yet",
+    main = title
+  )
+  
+  legend(
+    "topright",
+    legend = c("Low", "Medium", "High"),
+    col = 1:3,
+    lty = 1,
+    lwd = 2
+  )
+  
+  dev.off()
+}
+
+plot_km(
+  "tipping_time",
+  "tipping_reached",
+  "KM_tipping.png",
+  "Time to tipping-like acceleration"
+)
+
+plot_km(
+  "adoption_time",
+  "adoption_reached",
+  "KM_adoption.png",
+  "Time to majority adoption"
+)
+
+
+# ============================================================
+# Heatmaps
+# ============================================================
+
+# Visualize attitude change, tipping probability, and adoption probability across parameter combinations.
+# Create and save a heatmap for a selected outcome.
+
+plot_heat <- function(variable, title, filename) {
+  
+  p <- ggplot(
+    summary_data,
+    aes(
+      x = minority_prop,
+      y = prej_discount,
+      fill = .data[[variable]]
+    )
+  ) +
+    geom_tile() +
+    scale_fill_viridis_c(limits = c(0, 1)) +
+    labs(
+      title = title,
+      x = "Committed minority proportion",
+      y = "Prejudice discounting",
+      fill = "Proportion"
+    ) +
+    theme_minimal()
+  
+  print(p)
+  
+  ggsave(
+    file.path(out, filename),
+    p,
+    width = 8,
+    height = 5,
+    dpi = 300
+  )
+}
+
+plot_heat(
+  "mean_attitude_change",
+  "Mean attitude change",
+  "attitude_change_heatmap.png"
+)
+
+plot_heat(
+  "p_tipping",
+  "Probability of tipping-like acceleration",
+  "tipping_probability_heatmap.png"
+)
+
+plot_heat(
+  "p_adoption",
+  "Probability of majority adoption",
+  "adoption_probability_heatmap.png"
+)
+
+
+# ============================================================
+# Export regression results
+# ============================================================
+# Export Model 0, Model 1, and model comparisons
+
+
+sink(file.path(out, "model_results.txt"))
+
+cat("SYNTHETIC DATA - NOT FINAL ABM RESULTS\n\n")
+
+cat("Attitude change: Model 0\n")
+print(summary(model_attitude_0))
+
+cat("\nAttitude change: Model 1\n")
+print(summary(model_attitude_1))
+
+cat("\nAttitude change model comparison\n")
+print(anova(model_attitude_0, model_attitude_1))
+
+cat("\nTipping occurrence: Model 0\n")
+show_logistic(model_tipping_0)
+
+cat("\nTipping occurrence: Model 1\n")
+show_logistic(model_tipping_1)
+
+cat("\nTipping model comparison\n")
+compare_logistic(model_tipping_0, model_tipping_1)
+
+cat("\nAdoption occurrence: Model 0\n")
+show_logistic(model_adoption_0)
+
+cat("\nAdoption occurrence: Model 1\n")
+show_logistic(model_adoption_1)
+
+cat("\nAdoption model comparison\n")
+compare_logistic(model_adoption_0, model_adoption_1)
+
+cat("\nCox tipping models\n")
+if (!is.null(model_cox_tipping_0))
+  print(summary(model_cox_tipping_0))
+if (!is.null(model_cox_tipping_1))
+  print(summary(model_cox_tipping_1))
+
+cat("\nCox adoption models\n")
+if (!is.null(model_cox_adoption_0))
+  print(summary(model_cox_adoption_0))
+if (!is.null(model_cox_adoption_1))
+  print(summary(model_cox_adoption_1))
+
+sink()
+
+cat("Analysis completed.\n")
+cat("Results saved in:", out, "\n")
