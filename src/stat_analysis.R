@@ -250,7 +250,7 @@ anova(
   model_attitude_0,
   model_attitude_1
 )
-# H1 plot
+# H1 plot. Minority proportion
 plot_H1 <- ggplot(
   summary_data,
   aes(
@@ -279,61 +279,55 @@ ggsave(
 )
 
 
+# H2 plot. Prejudice discounting
 
-# Moderating effect of prejudice discounting
-# H3: Prejudice discounting weakens the positive relationship between minority proportion and attitude change.
+plot_H2 <- ggplot(
+  summary_data,
+  aes(x = prej_discount, y = mean_attitude_change)
+) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ minority_prop) +
+  labs(
+    title = "Effect of prejudice discounting on attitude change",
+    x = "Prejudice discounting",
+    y = "Mean attitude change proportion"
+  ) +
+  theme_minimal()
 
+print(plot_H2)
 
-
-
-
-# ============================================================
-# 6. Interaction: Does prejudice weaken the minority effect?
-# ============================================================
-
-model_interaction <- glm(
-  cbind(n_switched, n_not_switched) ~
-    minority_c * prejudice_c,
-  family = binomial(link = "logit"),
-  data = data
+ggsave(
+  file.path(out, "H2_prej_discount.png"),
+  plot_H2,
+  width = 10, height = 7, dpi = 300
 )
 
-summary(model_interaction)
+# H3: Interaction plot
 
-# Compare additive and interaction models
-model_additive <- glm(
-  cbind(n_switched, n_not_switched) ~
-    minority_c + prejudice_c,
-  family = binomial(link = "logit"),
-  data = data
+plot_H3 <- ggplot(
+  summary_data,
+  aes(
+    x = minority_prop,
+    y = mean_attitude_change,
+    color = factor(prej_discount),
+    group = prej_discount
+  )
+) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Minority proportion × Prejudice discounting",
+    x = "Initial minority proportion",
+    y = "Mean attitude change proportion",
+    color = "Prejudice discounting"
+  ) +
+  theme_minimal()
+
+print(plot_H3)
+
+ggsave(
+  file.path(out, "H3_interaction.png"),
+  plot_H3,
+  width = 10, height = 7, dpi = 300
 )
-
-anova(
-  model_additive,
-  model_interaction,
-  test = "Chisq"
-)
-
-# Export regression coefficients
-extract_coefficients <- function(model, model_name) {
-  result <- as.data.frame(coef(summary(model)))
-  result$term <- rownames(result)
-  rownames(result) <- NULL
-  result$model <- model_name
-  result
-}
-
-regression_results <- bind_rows(
-  extract_coefficients(model_H1, "H1"),
-  extract_coefficients(model_H2, "H2"),
-  extract_coefficients(model_interaction, "Interaction")
-)
-
-write.csv(
-  regression_results,
-  "regression_results.csv",
-  row.names = FALSE
-)
-
-cat("Analysis completed.\n")
-cat("Synthetic data, regression results, and plots saved.\n")
