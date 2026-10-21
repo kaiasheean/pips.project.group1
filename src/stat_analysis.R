@@ -1,91 +1,208 @@
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+library(survival)
 
 set.seed(123)
 
-# ============================================================
-# 1. Generate synthetic data
-# ============================================================
+out <- "outputs"
+dir.create(out, showWarnings = FALSE)
 
-N <- 500
 
-minority_levels <- seq(0.15, 0.35, by = 0.02)
-prejudice_levels <- seq(0, 100, by = 10)
+# Simulation parameters ------------------
 
-n_repetitions <- 100
+n_agents_levels <- c(100, 200, 500)
+minority_levels <- seq(0.15, 0.35, by = 0.05)
+prej_discount_levels <- seq(0, 1, by = 0.1)
+n_rounds <- 120
+n_repetitions <- 10 # Change to 100 after testing
 
-data <- expand.grid(
-  minority_proportion = minority_levels,
-  prejudice = prejudice_levels,
-  repetition = seq_len(n_repetitions)
+adopt_thresh <- 0.50
+
+# Exploratory tipping detection criteria
+TIP_WINDOW <- 8
+TIP_MULTIPLIER <- 1.7
+TIP_MIN_INCREASE <- 0.0015
+
+# Parameter sweep -------------------------
+conditions <- expand.grid(
+  n_agents = n_agents_levels,
+  minority_prop = minority_levels,
+  prej_discount = prej_discount_levels,
+  replicate = seq_len(n_repetitions),
+  KEEP.OUT.ATTRS = FALSE
 )
 
-# Population composition
-data$n_minority <- round(N * data$minority_proportion)
-data$n_majority <- N - data$n_minority
+conditions$run_id <- seq_len(nrow(conditions))
 
-# Center predictors
-data$minority_c <-
-  (data$minority_proportion - 0.25) / 0.10
 
-data$prejudice_c <-
-  (data$prejudice - 50) / 50
+# Simulate one run --------------------------
 
-# ============================================================
-# 2. Generate switching probabilities
-# ============================================================
+simulate_one <- function(n_agents, minority_prop,
+                         prej_discount, replicate, run_id) {
+  
+  group_n <- round(n_agents * minority_prop)
+  majority_n <- n_agents - group_n
+  
+  adopted <- 0L
+  support <- numeric(n_round + 1)
+  support[1] <- group_n / n_agents
+  
+  # Simulate attitude adoption over rounds
+  for (round in seq_len(n_round)) {
+    
+    peer_fraction <- adopted / n_agents
+    
+    influence <-
+      (group_n / n_agents) * (1 - prej_discount) +
+      1.7 * peer_fraction
+    
+    p_switch <- min(
+      0.50,
+      max(0, 0.006 + 0.085 * influence)
+    )
+    
+    n_new <- rbinom(
+      1,
+      size = majority_n - adopted,
+      prob = p_switch
+    )
+    
+    adopted <- adopted + n_new
+    
+    support[round + 1] <-
+      (group_n + adopted) / n_agents
+  }
+  
+  # Detect tipping-like acceleration
+  delta <- diff(support)
+  tipping_round <- NA_integer_
+  
+  if (length(delta) >= 2 * TIP_WINDOW) {
+    
+    for (t in seq.int(2 * TIP_WINDOW, length(delta))) {
+      
+      before <- mean(
+        delta[(t - 2 * TIP_WINDOW + 1):(t - TIP_WINDOW)]
+      )
+      
+      after <- mean(
+        delta[(t - TIP_WINDOW + 1):t]
+      )
+      
+      if (
+        after >= TIP_MULTIPLIER * max(before, 0.0005) &&
+        after - before >= TIP_MIN_INCREASE
+      ) {
+        tipping_round <- t
+        break
+      }
+    }
+  }
+  
+  # Detect majority adoption
+  adoption_hit <- which(support > adopt_thresh)
+  
+  adoption_round <- if (length(adoption_hit) > 0) {
+    adoption_hit[1] - 1L
+  } else {
+    NA_integer_
+  }
+  
+  # Run-level outcomes
+  summary <- data.frame(
+    run_id = run_id,
+    replicate = replicate,
+    n_agents = n_agents,
+    minority_prop = minority_prop,
+    prej_discount = prej_discount,
+    group_n = group_n,
+    majority_n = majority_n,
+    changed_majority_n = adopted,
+    attitude_change_prop = adopted / majority_n,
+    final_support_prop = tail(support, 1),
+    tipping_reached = as.integer(!is.na(tipping_round)),
+    rounds_to_tipping = tipping_round,
+    adoption_reached = as.integer(!is.na(adoption_round)),
+    rounds_to_adoption = adoption_round,
+    tipping_time = ifelse(
+      is.na(tipping_round), n_round, tipping_round
+    ),
+    adoption_time = ifelse(
+      is.na(adoption_round), n_round, adoption_round
+    )
+  )
+  
+  # Round-level outcomes
+  series <- data.frame(
+    run_id = run_id,
+    round = 0:n_round,
+    support_prop = support
+  )
+  
+  return(list(
+    summary = summary,
+    series = series
+  ))
+}
 
-# Illustrative assumptions, not estimated parameters.
-# Higher minority proportion increases switching probability.
-# Higher prejudice decreases switching probability.
-# The interaction allows prejudice to weaken the minority effect.
+# Run simulations-------------------------
 
-linear_predictor <- -0.2 +
-  1.5 * data$minority_c -
-  2.0 * data$prejudice_c -
-  0.4 * data$minority_c * data$prejudice_c
+cat("Simulating", nrow(conditions), "runs...\n")
 
-data$p_switch <- plogis(linear_predictor)
+summary_list <- vector("list", nrow(conditions))
 
-# Generate switching outcomes
-data$n_switched <- rbinom(
-  n = nrow(data),
-  size = data$n_majority,
-  prob = data$p_switch
+con <- file(
+  file.path(out, "simulation_timeseries.csv"),
+  "wt"
 )
 
-data$n_not_switched <-
-  data$n_majority - data$n_switched
+for (i in seq_len(nrow(conditions))) {
+  
+  x <- conditions[i, ]
+  
+  z <- simulate_one(
+    n_agents = x$n_agents,
+    minority_prop = x$minority_prop,
+    prej_discount = x$prej_discount,
+    replicate = x$replicate,
+    run_id = x$run_id
+  )
+  
+  summary_list[[i]] <- z$summary
+  
+  write.table(
+    z$series,
+    con,
+    sep = ",",
+    row.names = FALSE,
+    col.names = (i == 1),
+    quote = FALSE
+  )
+}
 
-# Primary outcome
-data$attitude_change_proportion <-
-  data$n_switched / data$n_majority
+close(con)
 
-# Secondary descriptive outcome
-data$final_support_rate <-
-  (data$n_minority + data$n_switched) / N
+dat <- bind_rows(summary_list)
 
-# Export synthetic data
 write.csv(
-  data,
-  "synthetic_simulation_data.csv",
+  dat,
+  file.path(out, "simulation_runs.csv"),
   row.names = FALSE
 )
 
 # ============================================================
-# 3. Descriptive analysis
+# Descriptive analysis
 # ============================================================
 
-summary_data <- data %>%
-  group_by(minority_proportion, prejudice) %>%
+summary_data <- dat %>%
+  group_by(minority_proportion, prej_discount) %>%
   summarise(
-    mean_attitude_change =
-      mean(attitude_change_proportion),
-    sd_attitude_change =
-      sd(attitude_change_proportion),
-    mean_final_support =
-      mean(final_support_rate),
+    mean_attitude_change = mean(attitude_change_prop),
+    sd_attitude_change = sd(attitude_change_prop),
+    mean_final_support = mean(final_support_prop),
+    p_tipping = mean(tipping_reached),
+    p_adoption = mean(adoption_reached),
     .groups = "drop"
   )
 
@@ -93,26 +210,24 @@ print(summary_data)
 
 write.csv(
   summary_data,
-  "summary_by_parameter.csv",
+  file.path(out, "summary_by_parameter.csv"),
   row.names = FALSE
 )
 
-# ============================================================
-# 4. H1: Effect of minority proportion
-# ============================================================
 
-# Binomial regression:
-# number switched vs. number not switched.
-# Adjust for prejudice.
+#Attitude change
 
-model_H1 <- glm(
-  cbind(n_switched, n_not_switched) ~
-    minority_c + prejudice_c,
-  family = binomial(link = "logit"),
-  data = data
-)
+# Center IV
+dat <- dat %>%
+  mutate(
+    minority_c = minority_prop - 0.25,
+    prej_discount_c = prej_discount - 0.50
+  )
 
-summary(model_H1)
+
+#H1: Minority proportion increases attitude change.
+#H2: Prejudice discounting decreases attitude change.
+#H3: Prejudice discounting weakens the minority proportion effect.
 
 # Visualise attitude change by minority proportion
 plot_H1 <- ggplot(
