@@ -15,8 +15,25 @@ knitr::opts_chunk$set(echo = TRUE)
 # Load required packages here once confirmed.
 
 ## 1. Introduction
-Intergroup contact is relevant to understanding prejudice reduction
-[@pettigrew2006].
+Previous research has identified inter-group contact and group membership
+as an important factor in understanding prejudice [@allport1954; @pettigrew2006]. 
+Research on minority influence suggests that committed minorities can
+promote collective social change. Researchers Xie et al., 2011, used an opinion
+dynamics model to further investigate how committed minorities can drive
+social change [@xie2011social]. While researchers [@centola2018experimental] 
+provided experimental evidence of tipping points in social convention change.  
+Our proposed agent-based model adds prejudice towards a committed minority 
+as a potential barrier to pro-immigration attitude adoption by the majority.
+Research on source credibility researchers hypothesize that individuals will
+be less receptive to agents if they belong to a different social group 
+[@hovland1951credibility]. We will model prejudice as reducing receptiveness 
+to influence from agents who are immigrants in the minority group. This is a
+simplifying modelling assumption rather than a direct finding of the 
+source-credibility research. We investigate how population size, committed 
+minority proportion, and prejudice affect pro-immigration attitude adoption 
+and the time required to achieve majority attitude reversal and or adoption. 
+We also examine whether prejudice changes the committed minority proportion 
+around which a sharp increase in successful adoption occurs (tipping point).
 
 ## 2. The model
 <!-- TODO (Role 2): describe agents, conversations, committed advocates and the main parameters -->
