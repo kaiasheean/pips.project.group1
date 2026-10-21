@@ -225,23 +225,31 @@ dat <- dat %>%
   )
 
 
-#H1: Minority proportion increases attitude change.
-#H2: Prejudice discounting decreases attitude change.
-#H3: Prejudice discounting weakens the minority proportion effect.
+# Effect of minority proportion
+# H1: A higher committed minority proportion increases attitude change among majority agents.
 
-# Visualise attitude change by minority proportion
+model_H1 <- lm(
+  attitude_change_prop ~
+    minority_c + prej_discount_c +
+    factor(n_agents),
+  data = dat
+)
+
+summary(model_H1)
+
+# H1 plot
 plot_H1 <- ggplot(
   summary_data,
   aes(
-    x = minority_proportion,
+    x = minority_prop,
     y = mean_attitude_change
   )
 ) +
   geom_line() +
   geom_point() +
-  facet_wrap(~ prejudice) +
+  facet_wrap(~ prej_discount) +
   labs(
-    title = "Attitude change by minority proportion",
+    title = "Effect of minority proportion on attitude change",
     x = "Initial minority proportion",
     y = "Mean attitude change proportion"
   ) +
@@ -250,54 +258,20 @@ plot_H1 <- ggplot(
 print(plot_H1)
 
 ggsave(
-  "H1_minority_proportion.png",
+  file.path(out, "H1_minority_proportion.png"),
   plot_H1,
   width = 10,
   height = 7,
   dpi = 300
 )
 
-# ============================================================
-# 5. H2: Effect of prejudice
-# ============================================================
+# Effect of prejudice discounting
+# H2: Higher prejudice discounting decreases attitude change among majority agents.
 
-# Adjust for minority proportion.
+# Moderating effect of prejudice discounting
+# H3: Prejudice discounting weakens the positive relationship between minority proportion and attitude change.
 
-model_H2 <- glm(
-  cbind(n_switched, n_not_switched) ~
-    prejudice_c + minority_c,
-  family = binomial(link = "logit"),
-  data = data
-)
 
-summary(model_H2)
-
-plot_H2 <- ggplot(
-  summary_data,
-  aes(
-    x = prejudice,
-    y = mean_attitude_change
-  )
-) +
-  geom_line() +
-  geom_point() +
-  facet_wrap(~ minority_proportion) +
-  labs(
-    title = "Attitude change by prejudice level",
-    x = "Initial prejudice level",
-    y = "Mean attitude change proportion"
-  ) +
-  theme_minimal()
-
-print(plot_H2)
-
-ggsave(
-  "H2_prejudice.png",
-  plot_H2,
-  width = 10,
-  height = 7,
-  dpi = 300
-)
 
 # ============================================================
 # 6. Interaction: Does prejudice weaken the minority effect?
