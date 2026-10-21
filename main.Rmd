@@ -36,7 +36,99 @@ We also examine whether prejudice changes the committed minority proportion
 around which a sharp increase in successful adoption occurs (tipping point).
 
 ## 2. The model
-<!-- TODO (Role 2): describe agents, conversations, committed advocates and the main parameters -->
+title: "prejudice-tipping-abm: Prejudice and attitude-change tipping points"
+The prejudice-tipping-abm examines how population size, committed minority
+proportion, and prejudice discount affect the spread of pro-immigration 
+attitudes.
+
+##Agents and Inital Attitudes:
+
+In the proposed initialization, immigrant minority agents hold a
+pro-immigration attitude and remain committed to it throughout the simulation. 
+All majority agents initially hold an anti-immigration attitude and are 
+non-committed, allowing their attitudes to change. This initial division is a
+simplifying modelling assumption, not a claim about the attitudes of real 
+immigrant or majority populations.
+
+Agents can hold an anti-immigration attitude, a pro-immigration attitude,
+or both attitudes. The code uses NOT_PREJUDICED to identify the fully 
+pro-immigration state and BOTH to identify the mixed state.
+
+##Independent Variables: 
+We vary three model parameters:
+1. Population size (group_n): the total number of agents.
+2. Minority proportion (minority_prop): the proportion of agents belonging 
+to the committed immigrant minority.
+3. Prejudice discount (prejudice_discount): a parameter between 0 and 1 that 
+reduces receptiveness to minority speakers. When the speaker belongs to the 
+minority, the hearer's update is permitted with probability 1 minus the 
+prejudice discount. Higher values therefore mean stronger discounting of 
+minority influence. When the speaker is not a minority agent, 
+this discount does not block the hearer's update. Committed agents do 
+not change their attitudes.
+
+## Hearer Attitude Updates
+During an interaction, hearer_updates 
+indicates whether the hearer is permitted to update their attitude. 
+TRUE (1) permits an update, provided the hearer is not committed; 
+FALSE (0) blocks the hearer's update. It is a binary interaction-level 
+indicator, not the prejudice parameter itself. If the hearer already holds 
+the communicated attitude, either alone or as part of a mixed attitude, 
+an allowed update leaves the hearer holding only the communicated attitude. 
+Otherwise, an allowed update gives the hearer a mixed attitude. In the former 
+case, a non-committed speaker also retains only the communicated attitude; 
+the speaker's update is not gated by hearer_updates.
+
+##Outcome measures
+Adoption proportion is the proportion of non-committed agents who hold the 
+fully pro-immigration attitude. Under the proposed initialisation, these are 
+the initially anti-immigration majority agents. Committed minority agents are 
+excluded from this measure. Mixed attitudes do not count as full adoption.
+The adoption criterion is met when adoption proportion exceeds tip_level. 
+If tip_level is set to 0.5, this means more than 50% of the non-committed 
+agents hold a fully pro-immigration attitude. This is an operational success 
+criterion, not a universal research threshold. Our planned primary outcomes are:
+Final adoption proportion: adoption proportion at a common, 
+fixed simulation endpoint, measured for every run.
+
+Adoption proportion is calculated among majority agents only: the
+number of initially anti-immigration majority agents who hold a fully
+pro-immigration attitude, divided by the total number of majority
+agents. Committed minority agents are excluded from both the numerator
+and the denominator. This ensures that the measure reflects attitude
+change in the majority and is not mechanically inflated by the
+proportion of committed minority agents.
+
+Adoption threshold reached: a binary indicator, coded 1 if the adoption
+criterion is reached within the simulation period and 0 otherwise.
+Our planned secondary outcome is rounds to adoption threshold: the first 
+conversation round when the adoption criterion is reached. Runs that do not 
+reach it are right-censored at the simulation time limit, meaning that the 
+threshold-crossing time is not observed within that period.
+
+##Current implementation and planned measurements
+
+The current function returns the first threshold-crossing round and stops 
+the run at that point. If the threshold is not reached within the simulation 
+limit, it returns NA. Threshold attainment can therefore be derived from 
+whether a crossing round is returned. To measure final adoption at a common 
+endpoint, the implementation must record the first crossing round without 
+ending the simulation early, continue to the fixed time limit, and return 
+final adoption alongside the crossing time and success indicator. 
+The simulation protocol must also specify what one conversation round
+represents and the maximum number of rounds.
+
+## Estimating a tipping threshold
+
+For each combination of population size and prejudice discount, 
+we plan to compare repeated simulations across minority proportions. 
+We will assess whether final adoption or the probability of 
+reaching the adoption criterion changes sharply around a particular minority
+proportion. Reaching the adoption criterion within one run is not itself 
+evidence of a tipping point. A tipping threshold is assessed from patterns
+across parameter conditions and repeated runs. If outcomes change gradually, 
+we will report that no clear tipping threshold was identified under the 
+conditions tested.
 
 ## 3. Load the code
 The model code lives in `src/`. These chunks are switched off until the files exist.
