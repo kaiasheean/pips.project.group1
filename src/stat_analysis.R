@@ -2,6 +2,7 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(survival)
+library(interactions)
 
 set.seed(123)
 
@@ -20,11 +21,6 @@ n_round <- 120
 n_repetitions <- 10 # Change to 100 after testing
 
 adopt_thresh <- 0.50
-
-# Exploratory tipping detection criteria
-TIP_WINDOW <- 8
-TIP_MULTIPLIER <- 1.7
-TIP_MIN_INCREASE <- 0.0015
 
 # Parameter sweep -------------------------
 conditions <- expand.grid(
@@ -73,32 +69,9 @@ simulate_one <- function(n_agents, minority_prop,
     adoption_prop[round + 1] <- adopted / majority_n
   }
   
-  # Detect tipping-like acceleration
-  delta <- diff(adoption_prop)
-  acceleration_round <- NA_integer_
-  
-  if (length(delta) >= 2 * TIP_WINDOW) {
-    
-    for (t in seq.int(2 * TIP_WINDOW, length(delta))) {
-      
-      before <- mean(
-        delta[(t - 2 * TIP_WINDOW + 1):(t - TIP_WINDOW)]
-      )
-      
-      after <- mean(delta[(t - TIP_WINDOW + 1):t])
-      
-      if (
-        after >= TIP_MULTIPLIER * max(before, 0.0005) &&
-        after - before >= TIP_MIN_INCREASE
-      ) {
-        acceleration_round <- t - TIP_WINDOW + 1L
-        break
-      }
-    }
-  }
   
   # Detect adoption among original majority agents
-  adoption_hit <- which(adoption_prop > adopt_thresh)
+  adoption_hit <- which(adoption_prop >= adopt_thresh)
   
   adoption_round <- if (length(adoption_hit) > 0) {
     adoption_hit[1] - 1L
@@ -116,16 +89,9 @@ simulate_one <- function(n_agents, minority_prop,
     group_n = group_n,
     majority_n = majority_n,
     changed_majority_n = adopted,
-    attitude_change_prop = adopted / majority_n,
     adoption_prop = tail(adoption_prop, 1),
-    final_support_prop = tail(support, 1),
-    acceleration_reached = as.integer(!is.na(acceleration_round)),
-    rounds_to_acceleration = acceleration_round,
     adoption_reached = as.integer(!is.na(adoption_round)),
     rounds_to_adoption = adoption_round,
-    acceleration_time = ifelse(
-      is.na(acceleration_round), n_round, acceleration_round
-    ),
     adoption_time = ifelse(
       is.na(adoption_round), n_round, adoption_round
     )
@@ -197,12 +163,14 @@ write.csv(
 summary_data <- dat %>%
   group_by(minority_prop, prej_discount) %>%
   summarise(
-    mean_attitude_change = mean(attitude_change_prop),
-    sd_attitude_change = sd(attitude_change_prop),
     mean_adoption_prop = mean(adoption_prop),
-    mean_final_support = mean(final_support_prop),
-    p_acceleration = mean(acceleration_reached),
+    sd_adoption_prop = sd(adoption_prop),
     p_adoption = mean(adoption_reached),
+    mean_rounds_to_adoption = if (any(adoption_reached == 1)) {
+      mean(rounds_to_adoption[adoption_reached == 1])
+    } else {
+      NA_real_
+    },
     .groups = "drop"
   )
 
@@ -215,7 +183,7 @@ write.csv(
 )
 
 
-#Attitude change
+# Majority adoption analysis
 
 # Center IV
 dat <- dat %>%
@@ -230,56 +198,55 @@ dat <- dat %>%
 # ============================================================
 
 
-# Main effects - minority proportion and prejudice discounting
-# Interaction - minority proportion * prejudice discounting
-# H1: A higher committed minority proportion increases attitude change among majority agents.
-# H2: Higher prejudice discounting decreases attitude change among majority agents.
-# H3: Prejudice discounting weakens the positive relationship between minority proportion and attitude change.
+# H1: Higher minority proportion increases majority adoption proportion.
+# H2: Higher prejudice discounting decreases majority adoption proportion.
+# H3: Prejudice discounting moderates the effect of minority proportion
+#     on majority adoption proportion.
 
 # Model 0: Main effects only, no interaction term
-model_attitude_0 <- lm(
-  attitude_change_prop ~
+model_adoption_prop_0 <- lm(
+  adoption_prop ~
     minority_c +
     prej_discount_c,
   data = dat
 )
 
-summary(model_attitude_0)
+summary(model_adoption_prop_0)
 
 
 # Model 1: with interaction term
-model_attitude_1 <- lm(
-  attitude_change_prop ~
+model_adoption_prop_1 <- lm(
+  adoption_prop ~
     minority_c * prej_discount_c,
   data = dat
 )
 
-summary(model_attitude_1)
+summary(model_adoption_prop_1)
 
 
 # Compare models
 anova(
-  model_attitude_0,
-  model_attitude_1
+  model_adoption_prop_0,
+  model_adoption_prop_1
 )
 
 # Residual diagnostics for attitude change regression
 
 png(
-  file.path(out, "attitude_regression_diagnostics.png"),
+  file.path(out, "adoption_regression_diagnostics.png"),
   width = 1200,
   height = 1000
 )
 
 par(mfrow = c(2, 2))
 
-plot(model_attitude_1)
+plot(model_adoption_prop_1)
 
 dev.off()
 
 # Check predictions outside the valid proportion range
 
-predicted_values <- fitted(model_attitude_1)
+predicted_values <- fitted(model_adoption_prop_1)
 
 n_outside <- sum(
   predicted_values < 0 | predicted_values > 1
@@ -297,8 +264,8 @@ range(predicted_values)
 # Check heteroscedasticity
 
 plot(
-  fitted(model_attitude_1),
-  resid(model_attitude_1),
+  fitted(model_adoption_prop_1),
+  resid(model_adoption_prop_1),
   xlab = "Fitted values",
   ylab = "Residuals",
   main = "Residuals vs Fitted"
@@ -306,88 +273,46 @@ plot(
 
 abline(h = 0, lty = 2)
 
-# H1 plot. Minority proportion
-plot_H1 <- ggplot(
-  summary_data,
-  aes(
-    x = minority_prop,
-    y = mean_attitude_change
+
+
+# H3: Moderation analysis
+
+interaction_p <- summary(model_adoption_prop_1)$coefficients[
+  "minority_c:prej_discount_c", "Pr(>|t|)"
+]
+
+if (!is.na(interaction_p) && interaction_p < 0.05) {
+  
+  # Simple slopes analysis: Mean and +/- 1 SD
+  simple_slopes_results <- sim_slopes(
+    model_adoption_prop_1,
+    pred = minority_c,
+    modx = prej_discount_c
   )
-) +
-  geom_line() +
-  geom_point() +
-  facet_wrap(~ prej_discount) +
-  labs(
-    title = "Effect of minority proportion on attitude change",
-    x = "Initial minority proportion",
-    y = "Mean attitude change proportion"
-  ) +
-  theme_minimal()
-
-print(plot_H1)
-
-ggsave(
-  file.path(out, "H1_minority_proportion.png"),
-  plot_H1,
-  width = 10,
-  height = 7,
-  dpi = 300
-)
-
-
-# H2 plot. Prejudice discounting
-
-plot_H2 <- ggplot(
-  summary_data,
-  aes(x = prej_discount, y = mean_attitude_change)
-) +
-  geom_line() +
-  geom_point() +
-  facet_wrap(~ minority_prop) +
-  labs(
-    title = "Effect of prejudice discounting on attitude change",
-    x = "Prejudice discounting",
-    y = "Mean attitude change proportion"
-  ) +
-  theme_minimal()
-
-print(plot_H2)
-
-ggsave(
-  file.path(out, "H2_prej_discount.png"),
-  plot_H2,
-  width = 10, height = 7, dpi = 300
-)
-
-# H3: Interaction plot
-
-plot_H3 <- ggplot(
-  summary_data,
-  aes(
-    x = minority_prop,
-    y = mean_attitude_change,
-    color = factor(prej_discount),
-    group = prej_discount
+  
+  print(simple_slopes_results)
+  
+  # Plot three predicted regression lines
+  plot_H3 <- interact_plot(
+    model_adoption_prop_1,
+    pred = minority_c,
+    modx = prej_discount_c,
+    interval = TRUE
   )
-) +
-  geom_line() +
-  geom_point() +
-  labs(
-    title = "Minority proportion × Prejudice discounting",
-    x = "Initial minority proportion",
-    y = "Mean attitude change proportion",
-    color = "Prejudice discounting"
-  ) +
-  theme_minimal()
-
-print(plot_H3)
-
-ggsave(
-  file.path(out, "H3_interaction.png"),
-  plot_H3,
-  width = 10, height = 7, dpi = 300
-)
-
+  
+  print(plot_H3)
+  
+  ggsave(
+    file.path(out, "interaction_simple_slopes.png"),
+    plot_H3,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+  
+} else {
+  cat("Interaction not significant; simple slopes unpacking skipped.\n")
+}
 
 
 #H4 H5 Logistic regression
@@ -428,17 +353,6 @@ fit_logistic <- function(outcome, interaction = FALSE) {
 }
 
 
-# H4: Tipping occurrence
-
-model_acceleration_0 <- fit_logistic(
-  "acceleration_reached",
-  interaction = FALSE
-)
-
-model_acceleration_1 <- fit_logistic(
-  "acceleration_reached",
-  interaction = TRUE
-)
 
 # H5: Majority adoption occurrence
 
@@ -470,10 +384,6 @@ compare_logistic <- function(model_0, model_1) {
     cat("Comparison skipped: model unavailable or not converged.\n")
   }
 }
-
-show_logistic(model_acceleration_0)
-show_logistic(model_acceleration_1)
-compare_logistic(model_acceleration_0, model_acceleration_1)
 
 show_logistic(model_adoption_0)
 show_logistic(model_adoption_1)
@@ -514,12 +424,6 @@ fit_cox <- function(time_var, event_var, interaction = FALSE) {
   )
 }
 
-# Time to tipping (H4)
-
-model_cox_acceleration_0 <- fit_cox("acceleration_time", "acceleration_reached", FALSE)
-
-model_cox_acceleration_1 <- fit_cox("acceleration_time", "acceleration_reached", TRUE)
-
 # Time to adoption (H5)
 
 model_cox_adoption_0 <- fit_cox("adoption_time", "adoption_reached", FALSE)
@@ -528,8 +432,8 @@ model_cox_adoption_1 <- fit_cox("adoption_time", "adoption_reached", TRUE)
 
 # Display model results.
 for (model in list(
-  model_cox_acceleration_0, model_cox_acceleration_1,
-  model_cox_adoption_0, model_cox_adoption_1
+  model_cox_adoption_0,
+  model_cox_adoption_1
 )) {
   if (!is.null(model)) print(summary(model))
 }
@@ -581,12 +485,6 @@ plot_km <- function(time_var, event_var, filename, title) {
   dev.off()
 }
 
-plot_km(
-  "acceleration_time",
-  "acceleration_reached",
-  "KM_tipping.png",
-  "Time to tipping-like acceleration"
-)
 
 plot_km(
   "adoption_time",
@@ -634,17 +532,6 @@ plot_heat <- function(variable, title, filename) {
   )
 }
 
-plot_heat(
-  "mean_attitude_change",
-  "Mean attitude change",
-  "attitude_change_heatmap.png"
-)
-
-plot_heat(
-  "p_acceleration",
-  "Probability of tipping-like acceleration",
-  "tipping_probability_heatmap.png"
-)
 
 plot_heat(
   "p_adoption",
@@ -669,18 +556,26 @@ sink(file.path(out, "model_results.txt"))
 cat("SYNTHETIC DATA - NOT FINAL ABM RESULTS\n\n")
 
 cat("Attitude change: Model 0\n")
-print(summary(model_attitude_0))
+print(summary(model_adoption_prop_0))
 
 cat("\nAttitude change: Model 1\n")
-print(summary(model_attitude_1))
+print(summary(model_adoption_prop_1))
 
 cat("\nAttitude change model comparison\n")
-print(anova(model_attitude_0, model_attitude_1))
+print(anova(model_adoption_prop_0, model_adoption_prop_1))
+
+cat("\nModeration analysis\n")
+cat("Interaction p-value:", interaction_p, "\n")
+
+if (exists("simple_slopes_results")) {
+  cat("\nSimple slopes analysis\n")
+  print(simple_slopes_results)
+}
 
 cat("\nAttitude change regression diagnostics\n")
 
 cat("Fitted value range:\n")
-print(range(fitted(model_attitude_1)))
+print(range(fitted(model_adoption_prop_1)))
 
 cat("\nNumber of fitted values outside [0, 1]:\n")
 print(n_outside)
@@ -689,16 +584,7 @@ cat("\nProportion of fitted values outside [0, 1]:\n")
 print(prop_outside)
 
 cat("\nResidual standard deviation:\n")
-print(sd(resid(model_attitude_1)))
-
-cat("\nTipping occurrence: Model 0\n")
-show_logistic(model_acceleration_0)
-
-cat("\nTipping occurrence: Model 1\n")
-show_logistic(model_acceleration_1)
-
-cat("\nTipping model comparison\n")
-compare_logistic(model_acceleration_0, model_acceleration_1)
+print(sd(resid(model_adoption_prop_1)))
 
 cat("\nAdoption occurrence: Model 0\n")
 show_logistic(model_adoption_0)
@@ -708,12 +594,6 @@ show_logistic(model_adoption_1)
 
 cat("\nAdoption model comparison\n")
 compare_logistic(model_adoption_0, model_adoption_1)
-
-cat("\nCox tipping models\n")
-if (!is.null(model_cox_acceleration_0))
-  print(summary(model_cox_acceleration_0))
-if (!is.null(model_cox_acceleration_1))
-  print(summary(model_cox_acceleration_1))
 
 cat("\nCox adoption models\n")
 if (!is.null(model_cox_adoption_0))
