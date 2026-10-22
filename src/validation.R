@@ -1,6 +1,36 @@
 
 validate_results <- function(data) {
 
+  # Check that all required columns exist
+  required_columns <- c(
+    "final_adoption",
+    "final_anti_majority_n",
+    "final_pro_majority_n",
+    "final_mixed_majority_n",
+    "n_majority",
+    "threshold_attained"
+  )
+
+  stopifnot(all(required_columns %in% names(data)))
+  stopifnot(nrow(data) > 0)
+
+  # Check that agent counts are valid
+  count_columns <- c(
+    "final_anti_majority_n",
+    "final_pro_majority_n",
+    "final_mixed_majority_n",
+    "n_majority"
+  )
+
+  counts <- data[count_columns]
+
+  stopifnot(
+    all(!is.na(counts)),
+    all(as.matrix(counts) >= 0),
+    all(as.matrix(counts) == floor(as.matrix(counts))),
+    all(data$n_majority > 0)
+  )
+
   # 1. Check for missing adoption values
   stopifnot(all(!is.na(data$final_adoption)))
 
