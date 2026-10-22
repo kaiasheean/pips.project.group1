@@ -1,289 +1,482 @@
-#Version_3.0_simulation and app
+#Version_3.1_Similation_app_data_preparation_for_analyses
 
-#Code summary:
-#this code defines the function to run to simulate the rules with which agents update their 
-#attitudes after a one on one conversation with another agent
+# ================================================================
+# USE AS ONE FILE OR TWO FILES
+# ================================================================
+# ONE FILE: save this entire script as app.R and click Run App.
+# TWO FILES: save Section 1 as simulation.R and Section 2 as app.R.
+# Keep both files in the same folder and launch app.R with Run App.
+# All headings in this file are R comments and can be copied safely.
+#
+# TWO ANALYSES:
+# 1. Threshold-attainment frequency across repeated simulation runs.
+# 2. Final pro-only majority adoption as a function of discounting.
+#
+# The second outcome is measured at max_ticks, excludes committed
+# agents, and does NOT count mixed agents as fully pro-immigration.
+# Crossing a chosen threshold is not an identified social tipping point.
+# One tick = one conversation, not a population-wide round.
+# This R/Shiny script has not been executed in the assistant environment.
 
+# ================================================================
+# SECTION 1 — SIMULATION.R
+# ================================================================
 
+# Validate user/model settings before running the simulation.
+is_whole_number <- function(x, minimum = 0) {
+  is.numeric(x) && length(x) == 1 && is.finite(x) &&
+    x >= minimum && x <= .Machine$integer.max && x == floor(x)
+}
+is_probability <- function(x) {
+  is.numeric(x) && length(x) == 1 && is.finite(x) && x >= 0 && x <= 1
+}
 
-#the update rules:
-
-#their attitudes are either prejudice or not prejudice
-
-#an agent has either prejudice, no prejudice or a mix of prejudice and no prejudice as their attitudes
-
-#each interaction will contain one speaker and one listener from the population
-
-#the speaker shares their attitude
-
-#if the listener has the same attitude, there is no change
-#if the speaker and listener have different attitudes the hearer takes on the speaker's attitude in addition to their
-#original attitude - so they have mixed attitudes
-#if the hearer has mixed attitudes, then the hearer will drop the attitude that disagrees with 
-#the speaker's attitude
-
-#NEW: every agent has a group label (committed minority or majority)
-#NEW: a non committed hearer who is spoken to by a minority speaker only updates with probability 
-#(1 - prejudice_discount), otherwise their attitude stays as it is
-
-
-# APP: load the shiny package, which provides the functions that build the interactive web app
-# (sliders, buttons, outputs, and the server logic that reacts to them)
-library(shiny)
-# APP: load bslib, which provides the modern page layout (page_sidebar), cards, value boxes,
-# and the theme (bs_theme) that makes the app look clean and polished
-library(bslib)
-
-
-# ------------------------------------------------------------------
-# THE AGENT BASED MODEL
-# ------------------------------------------------------------------
-
-run_model <- function(n = 100,
-                      committed_share = 0.1,
-                      tip_level = 0.5,
-                      max_ticks = 5000,
-                      prejudice_discount = 0) {   # NEW: 0 = no discount, 1 = never updates
+# MODEL: one population observed until max_ticks.
+run_model <- function(n = 100, committed_share = 0.1,
+                      adoption_threshold = 0.5, max_ticks = 5000,
+                      prejudice_discount = 0,
+                      run_id = 1, replicate = 1, batch_id = 1,
+                      seed = NULL, record_series = FALSE,
+                      record_every = 100) {
+  stopifnot(is_whole_number(n, 2), is_whole_number(max_ticks, 1),
+            is_whole_number(record_every, 1), is_probability(committed_share),
+            is_probability(adoption_threshold), is_probability(prejudice_discount),
+            is.logical(record_series), length(record_series) == 1,
+            !is.na(record_series))
+  n_committed <- round(n * committed_share)
+  n_majority <- n - n_committed
+  if (n_majority == 0) stop("At least one majority agent is required.")
+  if (!is.null(seed)) {
+    stopifnot(is_whole_number(seed))
+    set.seed(seed)
+  }
   
-  # Names for the attitude values
-  anti_img <- 0
-  pro_img  <- 1
-  both     <- 2
-  
-  # NEW: Names for the group labels
-  minority_label <- "minority"
-  majority_label <- "majority"
-  
-  # Everyone starts with the old norm only (attitude 0)
-  attitude <- rep(anti_img, n)
-  attitude
-  
-  #Generating the committed agents:
-  # Choose which agents are committed to the new norm
-  n_committed   <- round(committed_share * n)
-  committed_ids <- sample.int(n, n_committed)
-  
+  # State codes: anti-only / pro-only / mixed.
+  anti_img <- 0L
+  pro_img <- 1L
+  both <- 2L
   committed <- rep(FALSE, n)
-  committed[committed_ids] <- TRUE
-  non_committed <- !committed
-  
-  # Committed agents hold only the new norm (attitude 1)
+  committed[sample.int(n, n_committed)] <- TRUE
+  majority <- !committed
+  attitude <- rep(anti_img, n)
   attitude[committed] <- pro_img
+  first_crossing_round <- NA_integer_
+  counts <- c(n_majority, 0, 0) # Majority anti / pro / mixed counts.
   
-  # NEW: Assign group labels: committed agents get the minority label, everyone else the majority label
-  group <- rep(majority_label, n)
-  group[committed] <- minority_label
+  # Optional trajectory storage. Initial/final ticks are always retained.
+  series <- NULL
+  if (record_series) {
+    saved_ticks <- unique(c(seq(0, max_ticks, by = record_every), max_ticks))
+    series <- data.frame(
+      run_id = run_id, batch_id = batch_id, round = saved_ticks,
+      majority_adoption_prop = NA_real_, majority_anti_prop = NA_real_,
+      majority_mixed_prop = NA_real_, total_support_prop = NA_real_)
+    state_columns <- c("majority_adoption_prop", "majority_anti_prop",
+                       "majority_mixed_prop", "total_support_prop")
+    series[1, state_columns] <- list(0, 1, 0, n_committed / n)
+    next_save <- 2
+  }
   
-  
-  #the for loop to simulate the attitude update rules for each conversation:
-  for (conversation_round in 1:max_ticks) {
-    
-    # Pick a speaker, then a different agent as the hearer
+  # MODEL CORE: one conversation per iteration.
+  for (conversation_round in seq_len(max_ticks)) {
+    # Select a uniform speaker and uniformly chosen DIFFERENT listener.
     speaker <- sample.int(n, 1)
-    pool    <- setdiff(1:n, speaker)
-    hearer  <- pool[sample.int(length(pool), 1)]
+    hearer <- sample.int(n - 1, 1)
+    if (hearer >= speaker) hearer <- hearer + 1
+    expressed_attitude <- if (attitude[speaker] == both) {
+      sample(c(anti_img, pro_img), 1)
+    } else attitude[speaker]
+    # Only influence from committed speakers is discounted.
+    hearer_updates <- if (committed[speaker]) {
+      runif(1) >= prejudice_discount
+    } else TRUE
     
-    # Speaker expresses one attitude (prejudice or non prejudice) (a two-attitude speaker picks one at random)
-    prejudice <- if (attitude[speaker] == both) sample(c(anti_img, pro_img), 1) else attitude[speaker]
-    
-    # NEW: If the speaker has the minority label, the hearer only updates with probability (1 - prejudice_discount)
-    hearer_updates <- if (group[speaker] == minority_label) runif(1) >= prejudice_discount else TRUE
-    
-    #if the hearer has mixed atttiudes or the attitude has the prejudice attitude
-    #the hearer takes on the prejudice attitude
-    if (attitude[hearer] == both || attitude[hearer] == prejudice) {
-      # hearer already holds the prejudice, so they keep only that one
-      if (!committed[hearer] && hearer_updates) attitude[hearer] <- prejudice
-      # The speaker also collapses, unless committed
-      if (!committed[speaker]) attitude[speaker] <- prejudice
+    # Original executable listener rules AND speaker collapse are preserved.
+    if (attitude[hearer] == both || attitude[hearer] == expressed_attitude) {
+      if (!committed[hearer] && hearer_updates) attitude[hearer] <- expressed_attitude
+      if (!committed[speaker]) attitude[speaker] <- expressed_attitude
     } else {
-      # hearer adopts the new prejudice and now holds both, but not if the hearer is a committed agent
       if (!committed[hearer] && hearer_updates) attitude[hearer] <- both
     }
     
-    # Determining the tipping point threshold
-    if (mean(attitude[non_committed] == pro_img) > tip_level) return(conversation_round)
+    # Recount majority states. +1 translates codes 0/1/2 into bins 1/2/3.
+    # Simpler than incremental bookkeeping but potentially slower for big sweeps.
+    counts <- tabulate(attitude[majority] + 1L, nbins = 3)
+    majority_adoption <- counts[2] / n_majority
+    
+    # ANALYSIS 1 MEASUREMENT: check every tick; keep the FIRST crossing.
+    # Strict > matches Version 3.0. Do NOT stop when crossing happens.
+    if (is.na(first_crossing_round) && majority_adoption > adoption_threshold) {
+      first_crossing_round <- as.integer(conversation_round)
+    }
+    if (record_series && next_save <= nrow(series) &&
+        conversation_round == series$round[next_save]) {
+      series[next_save, state_columns] <- list(
+        majority_adoption, counts[1] / n_majority, counts[3] / n_majority,
+        (n_committed + counts[2]) / n)
+      next_save <- next_save + 1
+    }
   }
   
-  NA   # print NA if the tipping point is never reached
+  # ANALYSIS 1 RUN OUTCOME: 1 if threshold was ever crossed, else 0.
+  threshold_attained <- as.integer(!is.na(first_crossing_round))
+  # ANALYSIS 2 RUN OUTCOME: majority pro-only proportion at max_ticks.
+  # Includes ALL runs, not just runs that attained the threshold.
+  final_adoption <- counts[2] / n_majority
+  summary <- data.frame(
+    run_id = run_id, batch_id = batch_id, replicate = replicate,
+    seed = if (is.null(seed)) NA_real_ else seed,
+    n_agents = n, minority_prop = committed_share,
+    minority_prop_actual = n_committed / n, prej_discount = prejudice_discount,
+    n_committed = n_committed, n_majority = n_majority,
+    adoption_threshold = adoption_threshold, max_ticks = max_ticks,
+    first_crossing_round = first_crossing_round,
+    threshold_attained = threshold_attained,
+    # Retained for survival analyses: event time or censoring time.
+    observation_time = if (threshold_attained == 1) first_crossing_round else max_ticks,
+    final_pro_majority_n = counts[2], final_adoption = final_adoption,
+    final_anti_majority_n = counts[1], final_mixed_majority_n = counts[3],
+    final_total_support = (n_committed + counts[2]) / n,
+    # Ever crossed and above threshold at the end are different outcomes.
+    final_above_threshold = as.integer(final_adoption > adoption_threshold))
+  list(summary = summary, series = series)
 }
 
+# OUTPUT PROCESSING: one row per setting combination.
+# NEW: number of attainers and standard error of mean final adoption.
+# Different minority sizes/populations/durations are NEVER silently pooled.
+summarise_runs <- function(dat) {
+  if (is.null(dat) || nrow(dat) == 0) return(data.frame())
+  keys <- c("n_agents", "minority_prop", "minority_prop_actual", "prej_discount",
+            "adoption_threshold", "max_ticks")
+  groups <- do.call(interaction, c(dat[keys], list(drop = TRUE, lex.order = TRUE)))
+  pieces <- lapply(split(dat, groups), function(x) {
+    crossed <- x$first_crossing_round[x$threshold_attained == 1]
+    sd_final <- sd(x$final_adoption)
+    cbind(x[1, keys, drop = FALSE], data.frame(
+      n_runs = nrow(x),
+      n_threshold_attained = sum(x$threshold_attained),
+      p_threshold = mean(x$threshold_attained),
+      mean_final_adoption = mean(x$final_adoption),
+      sd_final_adoption = sd_final,
+      # Between-RUN standard error, not an assumption of independent agents.
+      # NA if there is only one run. Independence across runs is assumed.
+      se_mean_final_adoption = sd_final / sqrt(nrow(x)),
+      p_final_above_threshold = mean(x$final_above_threshold),
+      median_first_crossing_among_attainers = if (length(crossed)) median(crossed) else NA_real_))
+  })
+  out <- do.call(rbind, pieces)
+  # Sort by design settings so plotting/inspection is straightforward.
+  out <- out[do.call(order, out[keys]), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
 
-# ------------------------------------------------------------------
-# APP: USER INTERFACE
-# ------------------------------------------------------------------
+# NEW: two explicit analysis-ready tables from the same individual runs.
+# Both retain minority size so a discounting comparison need not mix conditions.
+prepare_analysis_tables <- function(dat) {
+  s <- summarise_runs(dat)
+  if (nrow(s) == 0) {
+    return(list(threshold = data.frame(), majority_adoption = data.frame()))
+  }
+  settings <- c("n_agents", "minority_prop", "minority_prop_actual",
+                "prej_discount", "adoption_threshold", "max_ticks")
+  threshold <- s[c(settings, "n_runs", "n_threshold_attained", "p_threshold")]
+  # Explicit percentage columns are for display; model inputs stay 0-1.
+  threshold$threshold_attainment_percent <- 100 * threshold$p_threshold
+  majority_adoption <- s[c(settings, "n_runs", "mean_final_adoption",
+                           "sd_final_adoption", "se_mean_final_adoption")]
+  majority_adoption$mean_final_adoption_percent <- 100 * majority_adoption$mean_final_adoption
+  list(threshold = threshold, majority_adoption = majority_adoption)
+}
 
-# APP: define the user interface, i.e. everything the user sees. page_sidebar() creates a page with a
-# sidebar for the settings on the left and a main area for the results on the right.
+# EXPERIMENT HELPER: automatically vary discounting and minority size.
+# To study discounting at ONE minority size, set minority_levels = 0.15.
+run_sweep <- function(n_agents_levels = 100,
+                      minority_levels = seq(0.15, 0.35, by = 0.05),
+                      prej_discount_levels = seq(0, 1, by = 0.1),
+                      n_repetitions = 10, adoption_threshold = 0.5,
+                      max_ticks = 5000, base_seed = 123,
+                      record_series = FALSE, record_every = 100,
+                      output_dir = file.path("data", "outputs")) {
+  stopifnot(is_whole_number(n_repetitions, 1), is_whole_number(base_seed),
+            is.logical(record_series), length(record_series) == 1,
+            !is.na(record_series))
+  conditions <- expand.grid(
+    n_agents = n_agents_levels, minority_prop = minority_levels,
+    prej_discount = prej_discount_levels, replicate = seq_len(n_repetitions),
+    KEEP.OUT.ATTRS = FALSE)
+  if (!nrow(conditions)) stop("Supply at least one parameter combination.")
+  stopifnot(as.double(base_seed) + nrow(conditions) - 1 <= .Machine$integer.max)
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  summaries <- vector("list", nrow(conditions))
+  if (record_series) {
+    con <- file(file.path(output_dir, "simulation_timeseries.csv"), "wt")
+    on.exit(close(con), add = TRUE)
+  }
+  for (i in seq_len(nrow(conditions))) {
+    x <- conditions[i, ]
+    z <- run_model(n = x$n_agents, committed_share = x$minority_prop,
+                   prejudice_discount = x$prej_discount, adoption_threshold = adoption_threshold,
+                   max_ticks = max_ticks, run_id = i, replicate = x$replicate,
+                   seed = as.double(base_seed) + i - 1,
+                   record_series = record_series, record_every = record_every)
+    summaries[[i]] <- z$summary
+    if (record_series) write.table(z$series, con, sep = ",", row.names = FALSE,
+                                   col.names = (i == 1), quote = FALSE)
+    if (i %% 25 == 0 || i == nrow(conditions)) message("Completed ", i, " / ", nrow(conditions))
+  }
+  dat <- do.call(rbind, summaries)
+  summary_data <- summarise_runs(dat)
+  analyses <- prepare_analysis_tables(dat)
+  # Fixed filenames overwrite earlier exports: use a new output_dir to retain them.
+  write.csv(dat, file.path(output_dir, "simulation_runs.csv"), row.names = FALSE)
+  write.csv(summary_data, file.path(output_dir, "summary_by_parameter.csv"), row.names = FALSE)
+  # NEW: two distinct files corresponding to the requested analyses.
+  write.csv(analyses$threshold,
+            file.path(output_dir, "analysis_1_threshold_attainment.csv"), row.names = FALSE)
+  write.csv(analyses$majority_adoption,
+            file.path(output_dir, "analysis_2_majority_adoption.csv"), row.names = FALSE)
+  list(runs = dat, summary = summary_data,
+       analysis_1 = analyses$threshold, analysis_2 = analyses$majority_adoption)
+}
+
+# Optional basic checks. These do not automatically run on opening the app.
+check_model <- function() {
+  blocked <- run_model(prejudice_discount = 1, max_ticks = 100, seed = 123,
+                       record_series = TRUE, record_every = 200)
+  stopifnot(is.na(blocked$summary$first_crossing_round),
+            blocked$summary$threshold_attained == 0, blocked$summary$final_adoption == 0,
+            blocked$summary$observation_time == 100,
+            identical(as.numeric(blocked$series$round), c(0, 100)))
+  a <- run_model(committed_share = 0.35, max_ticks = 2000, seed = 456,
+                 record_series = TRUE, record_every = 1)
+  b <- run_model(committed_share = 0.35, max_ticks = 2000, seed = 456)
+  cols <- c("majority_adoption_prop", "majority_anti_prop", "majority_mixed_prop")
+  stopifnot(identical(a$summary, b$summary),
+            all(abs(rowSums(a$series[cols]) - 1) < 1e-10),
+            tail(a$series$majority_adoption_prop, 1) == a$summary$final_adoption)
+  hits <- a$series$round[a$series$majority_adoption_prop > a$summary$adoption_threshold]
+  expected <- if (length(hits)) as.integer(hits[1]) else NA_integer_
+  stopifnot(identical(a$summary$first_crossing_round, expected))
+  # NEW: check that the two analysis tables summarise the individual runs correctly.
+  dat <- rbind(a$summary, b$summary)
+  tables <- prepare_analysis_tables(dat)
+  stopifnot(tables$threshold$n_runs == 2,
+            tables$threshold$p_threshold == mean(dat$threshold_attained),
+            tables$majority_adoption$mean_final_adoption == mean(dat$final_adoption))
+  # a and b are duplicate seeded runs for testing only, NOT independent data.
+  message("Basic consistency checks passed.")
+}
+
+# Example console sweep after sourcing simulation.R (not auto-executed):
+# results <- run_sweep(minority_levels = 0.15,
+#                      prej_discount_levels = seq(0, 1, by = 0.1),
+#                      n_repetitions = 50,
+#                      output_dir = file.path("data", "discounting_sweep_01"))
+# results$analysis_1  # Frequencies of threshold attainment.
+# results$analysis_2  # Final majority adoption at each discounting level.
+# For graphs: x = prej_discount; y = p_threshold OR mean_final_adoption.
+# For regression, use results$runs, not just the aggregated tables:
+# glm(threshold_attained ~ prej_discount, family = binomial(), data = results$runs)
+# lm(final_adoption ~ prej_discount, data = results$runs)
+# These formulas assume minority size/population/duration held fixed.
+# If minority size also varies, consider minority_prop * prej_discount.
+# Check model assumptions/convergence; lm may not suit bounded outcomes.
+# No statistical models or plots are executed automatically.
+
+# ===================== END OF SECTION 1 ==========================
+
+# ================================================================
+# SECTION 2 — APP.R
+# ================================================================
+library(shiny)
+library(bslib)
+
+# Combined file: Section 1 already defines these functions locally.
+# Split files: load simulation.R if local model functions are absent.
+# Remove the redundant loader check that was in the previous version.
+.required_model_functions <- c("run_model", "summarise_runs",
+                               "prepare_analysis_tables", "is_whole_number")
+.model_is_loaded <- all(vapply(.required_model_functions, exists,
+                               logical(1), envir = environment(), mode = "function", inherits = FALSE))
+if (!.model_is_loaded) {
+  if (!file.exists("simulation.R")) {
+    stop(paste("Model functions are not loaded and simulation.R was not found.",
+               "Run the entire combined script, or place simulation.R beside app.R",
+               "and launch the app from that folder. Current working directory:", getwd()),
+         call. = FALSE)
+  }
+  source("simulation.R", local = TRUE)
+}
+rm(.required_model_functions, .model_is_loaded)
+
+# APP UI: controls and output placeholders, not model rules.
 ui <- page_sidebar(
-  # APP: the title shown at the top of the page
-  title = "Tipping points in attitude change",
-  # APP: apply a clean, modern look. version = 5 uses Bootstrap 5, and bootswatch = "flatly" is a
-  # ready-made colour theme (you can try "cerulean", "minty", "lux" or "darkly" for different looks).
+  title = "Threshold attainment and majority adoption",
   theme = bs_theme(version = 5, bootswatch = "cerulean"),
-  
-  # APP: build the sidebar that holds all the settings. width is in pixels.
-  sidebar = sidebar(
-    width = 330,
-    
-    # APP: a small heading above the model settings
-    h5("Model settings"),
-    
-    # APP: slider for the number of agents. The first argument ("n") is the internal name the server uses to read
-    # the value (as input$n), the second is the label the user sees. It runs from 20 to 1000 in steps of 10, and
-    # starts at 100 (the default of run_model).
-    sliderInput("n", "Number of agents",
-                min = 20, max = 1000, value = 100, step = 10),
-    
-    # APP: slider for the committed group size as a percentage of all agents (0 to 50). post = "%" adds a % sign
-    # after the number. The server divides the value by 100 to turn it into the proportion run_model() expects.
-    sliderInput("share", "Committed group size (% of agents)",
-                min = 0, max = 50, value = 15, step = 1, post = "%"),
-    # APP: a line of text under the slider that shows how many agents the percentage means in practice
-    # (for example "15 of 100 agents are committed"). It is filled in by output$committed_text in the server.
-    textOutput("committed_text"),
-    
-    # APP: slider for the prejudice discount rate (a probability from 0 to 1, in steps of 0.05).
-    # The default of 0.25 means a hearer ignores a committed speaker 25% of the time.
-    sliderInput("discount", "Prejudice discount rate",
-                min = 0, max = 1, value = 0.25, step = 0.05),
-    # APP: grey explanatory text under the slider so the user understands what the number means
-    helpText("0 = no discount. Higher values make non-committed agents less likely to update after hearing a committed agent. At 1 they never update, so tipping is impossible."),
-    
-    # THRESHOLD: slider for the tipping threshold, shown as a percentage from 10 to 90 in steps of 5.
-    # The default of 50 matches the original tip_level of 0.5. The server converts it to a proportion.
-    sliderInput("tip_level", "Tipping threshold (% of non-committed agents)",
-                min = 10, max = 90, value = 50, step = 5, post = "%"),
-    # THRESHOLD: explanatory text describing what the threshold means
-    helpText("A run tips when more than this share of non-committed agents hold only the not-prejudiced attitude."),
-    
-    # APP: slider for the maximum number of conversation rounds a single run may last (500 to 50,000).
-    # If the model has not tipped by then, the run counts as "did not tip".
-    sliderInput("max_ticks", "Maximum number of rounds",
-                min = 500, max = 50000, value = 5000, step = 500),
-    # APP: reminder that bigger populations and higher thresholds take more rounds
-    helpText("Larger populations and higher thresholds need more rounds to tip."),
-    
-    # APP: a thin horizontal line to visually separate the model settings from the repetition setting
-    hr(),
-    # APP: a second small heading
-    h5("Repetitions"),
-    # APP: slider for how many times the model is repeated with the same settings. One run is random,
-    # so repeating it gives an estimate of how often the model tips (the tipping probability).
-    sliderInput("reps", "Number of repeated runs",
-                min = 10, max = 200, value = 50, step = 10),
-    # APP: explanatory text for the repetitions slider
-    helpText("Each run is random, so the app repeats the model to estimate how often it tips."),
-    
-    # APP: the button that starts the simulation. "run" is its internal name (the server reads input$run).
-    # class = "btn-primary w-100" makes it the theme's main (blue) button and stretches it across the full sidebar width.
-    actionButton("run", "Run simulation", class = "btn-primary w-100")
+  sidebar = sidebar(width = 340,
+                    h5("Model settings"),
+                    sliderInput("n", "Number of agents", min = 20, max = 1000, value = 100, step = 10),
+                    sliderInput("share", "Committed group size (%)", min = 0, max = 50, value = 15, step = 1, post = "%"),
+                    textOutput("committed_text"),
+                    sliderInput("discount", "Prejudice discount rate", min = 0, max = 1, value = 0.25, step = 0.05),
+                    helpText("0 = no discount. At 1, majority adoption cannot start from these initial states."),
+                    sliderInput("threshold", "Adoption threshold (% of majority)", min = 10, max = 90, value = 50, step = 5, post = "%"),
+                    helpText("Crossing means MORE THAN this share of majority agents is fully pro-immigration. Mixed and committed agents do not count."),
+                    sliderInput("max_ticks", "Conversation ticks per run", min = 500, max = 50000, value = 5000, step = 500),
+                    helpText("All runs continue to this endpoint, including after crossing."),
+                    hr(), h5("Repetitions and recording"),
+                    sliderInput("reps", "Repeated runs", min = 10, max = 200, value = 50, step = 10),
+                    numericInput("base_seed", "Base random seed", value = 123, min = 0, max = 2000000000, step = 1),
+                    checkboxInput("record_series", "Record time series", value = FALSE),
+                    numericInput("record_every", "Save every this many ticks", value = 100, min = 1, step = 1),
+                    helpText("Crossing is checked every tick regardless of recording frequency."),
+                    actionButton("run", "Run simulations", class = "btn-primary w-100"),
+                    hr(), h5("Downloads"),
+                    helpText("To compare discounting: hold other settings fixed, change discounting and run again. Downloads contain ALL stored batches."),
+                    helpText("Use non-overlapping seeds for additional repetitions of identical settings. Closing the session loses data unless downloaded."),
+                    downloadButton("download_runs", "Individual run results"),
+                    downloadButton("download_summary", "Full parameter summary"),
+                    # NEW downloads correspond directly to the two requested analyses.
+                    downloadButton("download_analysis_1", "Analysis 1: threshold frequency"),
+                    downloadButton("download_analysis_2", "Analysis 2: majority adoption"),
+                    downloadButton("download_series", "Recorded time series"),
+                    actionButton("clear", "Clear stored batches")
   ),
-  
-  # Summary boxes
-  # APP: arrange the three summary boxes in a row. fill = FALSE stops the row from stretching to fill the page
-  # height, so the boxes stay compact. col_widths = c(4, 4, 4) splits the 12-column page grid into three equal
-  # parts (4 + 4 + 4 = 12).
-  layout_columns(
-    fill = FALSE,
-    col_widths = c(4, 4, 4),
-    # APP: first box: the proportion of repeated runs that tipped. The big number is filled in by output$tip_prob.
-    value_box(title = "Tipping probability",
-              value = textOutput("tip_prob"),
-              theme = "primary"),
-    # APP: second box: the median number of rounds taken to tip (among runs that tipped), from output$median_rounds
-    value_box(title = "Median rounds to tip",
-              value = textOutput("median_rounds"),
-              theme = "success"),
-    # APP: third box: how many agents were committed in the last run, from output$n_committed
-    value_box(title = "Committed agents",
-              value = textOutput("n_committed"),
-              theme = "secondary")
-  )
+  layout_columns(fill = FALSE, col_widths = c(4, 4, 4),
+                 value_box(title = "1. Threshold attained (latest batch)", value = textOutput("threshold_prob"), theme = "primary"),
+                 value_box(title = "2. Mean final majority adoption", value = textOutput("final_adoption"), theme = "secondary"),
+                 value_box(title = "Median crossing tick (attainers only)", value = textOutput("median_rounds"), theme = "success")),
+  card(card_header("Stored results"), textOutput("stored_status"),
+       helpText("First crossing need not be sustained. Neither output identifies a social tipping point."), tableOutput("preview")),
+  # NEW previews: both analyses, grouped by discounting AND other settings.
+  card(card_header("Analysis 1: proportion of runs attaining the threshold"),
+       tableOutput("analysis_1_preview")),
+  card(card_header("Analysis 2: mean final pro-only majority adoption"),
+       helpText("All runs are included, whether or not they attained the threshold."),
+       tableOutput("analysis_2_preview"))
 )
 
-
-# ------------------------------------------------------------------
-# APP: SERVER
-# ------------------------------------------------------------------
-
-# APP: define the server, i.e. the code that runs behind the scenes. It reads the user's settings from "input",
-# runs the model, and sends the results to the screen through "output". "session" is required by Shiny but unused here.
+# APP SERVER: separate temporary storage per user session.
 server <- function(input, output, session) {
-  
-  # Shows how many agents the chosen percentage corresponds to
-  # APP: renderText() creates text that updates automatically whenever the sliders it depends on change.
-  # Here it turns the percentage (input$share) and the number of agents (input$n) into a readable sentence.
-  # round() gives a whole number of agents, matching what run_model() does with round(committed_share * n).
+  stored_runs <- reactiveVal(NULL)
+  stored_series <- reactiveVal(NULL)
+  latest_batch <- reactiveVal(NULL)
+  batch_counter <- reactiveVal(0)
   output$committed_text <- renderText({
     paste0(round(input$share / 100 * input$n), " of ", input$n, " agents are committed")
   })
   
-  # Runs the model only when the button is clicked (and once when the app opens)
-  # APP: eventReactive() stores a result that is recalculated only when the event in its first argument happens,
-  # here a click on the "Run simulation" button (input$run). This means moving a slider does NOT start a run, so the
-  # user can set up several settings and then run once. The result is stored in "results", which the outputs use below.
-  results <- eventReactive(input$run, {
-    # APP: copy the slider values into short variable names. These are read once when the button is clicked,
-    # so the results always match the settings used for that run.
-    n     <- input$n
-    # APP: the committed slider is in percent (0 to 50), but run_model() needs a proportion (0 to 0.5), so divide by 100
-    share <- input$share / 100
-    d     <- input$discount
-    # THRESHOLD: the threshold slider is in percent, but run_model() needs a proportion, so divide by 100
-    tip   <- input$tip_level / 100
-    mt    <- input$max_ticks
-    reps  <- input$reps
-    
-    # APP: withProgress() shows a progress bar while the code inside runs, so the user knows the simulation is working.
-    # value = 0 means the bar starts empty. Whatever the block returns at the end is stored in "ticks".
-    ticks <- withProgress(message = "Running simulation...", value = 0, {
-      # repeated runs, keeping only the tipping round (NA = never tipped)
-      # APP: repeat the model "reps" times. vapply() loops over 1, 2, ..., reps and collects one number from each run
-      # into a vector (the numeric(1) tells it to expect exactly one number each time).
-      vapply(seq_len(reps), function(i) {
-        # APP: move the progress bar forward by 1/reps, so it reaches full after the last repeat
+  # Run only on a button click; slider movements do not simulate automatically.
+  observeEvent(input$run, {
+    if (!is_whole_number(input$base_seed) ||
+        as.double(input$base_seed) + input$reps - 1 > .Machine$integer.max) {
+      showNotification("Enter a valid nonnegative integer seed.", type = "error")
+      return(invisible(NULL))
+    }
+    if (!is_whole_number(input$record_every, 1)) {
+      showNotification("Recording interval must be a positive integer.", type = "error")
+      return(invisible(NULL))
+    }
+    batch <- batch_counter() + 1
+    old <- stored_runs()
+    first_id <- if (is.null(old)) 1 else max(old$run_id) + 1
+    settings <- list(n = input$n, committed_share = input$share / 100,
+                     prejudice_discount = input$discount, adoption_threshold = input$threshold / 100,
+                     max_ticks = input$max_ticks, record_series = input$record_series,
+                     record_every = input$record_every)
+    reps <- input$reps
+    base_seed <- input$base_seed
+    # Reject duplicate settings/seed pairs already stored in this session.
+    if (!is.null(old)) {
+      same <- old$n_agents == settings$n & old$minority_prop == settings$committed_share &
+        old$prej_discount == settings$prejudice_discount &
+        old$adoption_threshold == settings$adoption_threshold & old$max_ticks == settings$max_ticks
+      seeds <- base_seed + seq_len(reps) - 1
+      if (any(same & old$seed %in% seeds)) {
+        showNotification("Some settings/seed pairs are already stored. Use a non-overlapping seed range or clear results.", type = "error", duration = 10)
+        return(invisible(NULL))
+      }
+    }
+    # APP -> MODEL boundary: named arguments passed into the simulation.
+    sims <- withProgress(message = "Running full-duration simulations...", value = 0, {
+      lapply(seq_len(reps), function(i) {
+        z <- do.call(run_model, c(settings, list(run_id = first_id + i - 1,
+                                                 replicate = i, batch_id = batch, seed = base_seed + i - 1)))
         incProgress(1 / reps)
-        # APP: as.numeric() converts a never-tipped result (a logical NA) into a numeric NA, because vapply()
-        # requires every result to be a number.
-        as.numeric(run_model(n = n, committed_share = share, tip_level = tip,
-                             max_ticks = mt, prejudice_discount = d))
-      }, numeric(1))
+        z
+      })
     })
-    
-    # APP: return everything the summary boxes need in one list: the tipping rounds of all repeated runs, plus the
-    # number of agents and committed share used (stored so the boxes describe the run that was actually done,
-    # not the sliders' current positions).
-    list(ticks = ticks, n = n, share = share)
-    # APP: ignoreNULL = FALSE makes the model also run once when the app first opens (before the button has been
-    # clicked), so the user sees results straight away instead of empty boxes.
-  }, ignoreNULL = FALSE)
-  
-  # Summary boxes
-  # APP: the tipping probability box. !is.na(r$ticks) is TRUE for runs that tipped, and mean() of those TRUE/FALSE
-  # values is the proportion that tipped. It is multiplied by 100 and shown as a whole-number percentage with sprintf().
-  output$tip_prob <- renderText({
-    r <- results()
-    sprintf("%.0f%%", 100 * mean(!is.na(r$ticks)))
+    new_runs <- do.call(rbind, lapply(sims, function(z) z$summary))
+    new_series <- do.call(rbind, lapply(sims, function(z) z$series))
+    stored_runs(rbind(old, new_runs))
+    if (!is.null(new_series)) stored_series(rbind(stored_series(), new_series))
+    latest_batch(new_runs)
+    batch_counter(batch)
+  }, ignoreInit = TRUE)
+  observeEvent(input$clear, {
+    stored_runs(NULL); stored_series(NULL); latest_batch(NULL); batch_counter(0)
   })
   
-  # APP: the median rounds box. First keep only the runs that tipped (drop the NAs), because a run that never
-  # tipped has no tipping time to include.
+  # NEW: calculate the two tables once whenever stored runs change.
+  analysis_tables <- reactive({
+    req(stored_runs())
+    prepare_analysis_tables(stored_runs())
+  })
+  output$threshold_prob <- renderText({
+    x <- latest_batch()
+    if (is.null(x)) "Run simulations first" else sprintf("%.1f%%", 100 * mean(x$threshold_attained))
+  })
+  output$final_adoption <- renderText({
+    x <- latest_batch()
+    if (is.null(x)) "—" else sprintf("%.1f%%", 100 * mean(x$final_adoption))
+  })
   output$median_rounds <- renderText({
-    tipped <- results()$ticks
-    tipped <- tipped[!is.na(tipped)]
-    # APP: if no run tipped there is no median, so show a message; otherwise show the median rounded to a whole number,
-    # with a thousands separator (for example 1,250).
-    if (length(tipped) == 0) "No runs tipped" else format(round(median(tipped)), big.mark = ",")
+    x <- latest_batch()
+    if (is.null(x)) return("—")
+    crossed <- x$first_crossing_round[x$threshold_attained == 1]
+    if (!length(crossed)) "No crossings" else format(median(crossed), big.mark = ",", trim = TRUE)
   })
+  output$stored_status <- renderText({
+    x <- stored_runs()
+    if (is.null(x)) return("No stored results yet.")
+    paste(nrow(x), "runs in", length(unique(x$batch_id)), "batches.")
+  })
+  output$preview <- renderTable({
+    req(latest_batch())
+    head(latest_batch()[c("run_id", "minority_prop", "prej_discount", "first_crossing_round",
+                          "threshold_attained", "final_adoption", "observation_time")], 10)
+  }, digits = 3, na = "NA")
+  output$analysis_1_preview <- renderTable({
+    analysis_tables()$threshold
+  }, digits = 3, na = "NA")
+  output$analysis_2_preview <- renderTable({
+    analysis_tables()$majority_adoption
+  }, digits = 3, na = "NA")
   
-  # APP: the committed agents box: shows the number of committed agents out of the total, using the settings from the last run
-  output$n_committed <- renderText({
-    r <- results()
-    paste0(round(r$share * r$n), " of ", r$n)
-  })
+  # Complete data exports; no statistical model fitting or graphs here.
+  output$download_runs <- downloadHandler(filename = function() "simulation_runs.csv",
+                                          content = function(file) {
+                                            req(stored_runs()); write.csv(stored_runs(), file, row.names = FALSE, na = "NA")
+                                          })
+  output$download_summary <- downloadHandler(filename = function() "summary_by_parameter.csv",
+                                             content = function(file) {
+                                               req(stored_runs()); write.csv(summarise_runs(stored_runs()), file, row.names = FALSE, na = "NA")
+                                             })
+  output$download_analysis_1 <- downloadHandler(filename = function() "analysis_1_threshold_attainment.csv",
+                                                content = function(file) {
+                                                  write.csv(analysis_tables()$threshold, file, row.names = FALSE, na = "NA")
+                                                })
+  output$download_analysis_2 <- downloadHandler(filename = function() "analysis_2_majority_adoption.csv",
+                                                content = function(file) {
+                                                  write.csv(analysis_tables()$majority_adoption, file, row.names = FALSE, na = "NA")
+                                                })
+  output$download_series <- downloadHandler(filename = function() "simulation_timeseries.csv",
+                                            content = function(file) {
+                                              req(stored_series()); write.csv(stored_series(), file, row.names = FALSE, na = "NA")
+                                            })
 }
 
-# APP: combine the user interface and the server into a running Shiny app. This is the line that starts the app
-# when you click "Run App" in RStudio or call shiny::runApp().
+# APP ENTRY POINT: save as app.R and launch using Run App.
 shinyApp(ui, server)
