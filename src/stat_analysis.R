@@ -12,7 +12,7 @@ dir.create(out, showWarnings = FALSE)
 
 # Simulation parameters ------------------
 
-n_agents_levels <- c(100, 200, 500)
+n_agents_levels <- 1500
 minority_levels <- seq(0.15, 0.35, by = 0.05)
 prej_discount_levels <- seq(0, 1, by = 0.1)
 n_round <- 120
@@ -232,8 +232,7 @@ dat <- dat %>%
 model_attitude_0 <- lm(
   attitude_change_prop ~
     minority_c +
-    prej_discount_c +
-    factor(n_agents),
+    prej_discount_c,
   data = dat
 )
 
@@ -243,8 +242,7 @@ summary(model_attitude_0)
 # Model 1: with interaction term
 model_attitude_1 <- lm(
   attitude_change_prop ~
-    minority_c * prej_discount_c +
-    factor(n_agents),
+    minority_c * prej_discount_c,
   data = dat
 )
 
