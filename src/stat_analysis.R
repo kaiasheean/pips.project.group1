@@ -2,7 +2,7 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(survival)
-library(interactions)
+
 
 # Load the ABM simulation functions
 source("src/simulation.R")
@@ -19,7 +19,7 @@ minority_levels <- seq(0.15, 0.35, by = 0.05)
 prej_discount_levels <- seq(0, 1, by = 0.1)
 
 max_ticks <- 5000
-n_repetitions <- 10  # Change to 100 after testing
+n_repetitions <- 100  # Change to 100 after testing
 adopt_thresh <- 0.50
 
 
@@ -57,6 +57,44 @@ head(dat)
 summary(dat$adoption_prop)
 
 table(dat$adoption_reached)
+
+# Check majority adoption threshold attainment
+
+n_runs <- nrow(dat)
+n_reached <- sum(dat$adoption_reached == 1)
+n_not_reached <- sum(dat$adoption_reached == 0)
+
+cat("\nThreshold attainment check\n")
+cat("Total simulation runs:", n_runs, "\n")
+cat("Threshold attained:", n_reached, "\n")
+cat("Threshold not attained:", n_not_reached, "\n")
+cat("Threshold attainment rate:", n_reached / n_runs, "\n")
+
+# Check threshold attainment for each parameter combination
+threshold_summary <- dat %>%
+  group_by(minority_prop, prej_discount) %>%
+  summarise(
+    n_runs = n(),
+    n_reached = sum(adoption_reached == 1),
+    attainment_rate = mean(adoption_reached == 1),
+    .groups = "drop"
+  )
+
+print(threshold_summary, n = Inf)
+
+write.csv(
+  threshold_summary,
+  file.path(data_dir, "threshold_by_condition.csv"),
+  row.names = FALSE
+)
+
+if (n_reached == 0) {
+  cat(
+    "\nNo simulation reached the majority adoption threshold.",
+    "\nBinary logistic regression and time-to-threshold analyses",
+    "will not be conducted.\n"
+  )
+}
 
 # ============================================================
 # Descriptive analysis
@@ -105,35 +143,65 @@ dat <- dat %>%
 # H3: Prejudice discounting moderates the effect of minority proportion
 #     on majority adoption proportion.
 
-# Model 0: Main effects only, no interaction term
-model_adoption_prop_0 <- lm(
-  adoption_prop ~
-    minority_c +
-    prej_discount_c,
-  data = dat
+# ============================================================
+# H1-H3: Fractional logistic regression
+# ============================================================
+
+# Outcome: Final proportion of original majority agents
+# holding only the pro-immigrant attitude (adoption_prop).
+#
+# We initially considered ordinary linear regression.
+# However, adoption_prop is bounded between 0 and 1,
+# and the linear model produced predictions outside this range:
+# 170 out of 550 fitted values (30.9%).
+#
+# We therefore use fractional logistic regression with a
+# quasibinomial family and logit link.
+#
+# This approach:
+# - accommodates proportions including exact 0 and 1;
+# - constrains fitted values to the interval [0, 1];
+# - allows testing the effects of minority proportion,
+#   prejudice discounting, and their interaction.
+#
+# Coefficients are interpreted on the logit scale.
+# Predicted proportions are used to interpret substantive effects.
+
+
+# Model 0: Main effects
+model_adoption_prop_0 <- glm(
+  adoption_prop ~ minority_c + prej_discount_c,
+  data = dat,
+  family = quasibinomial(link = "logit")
 )
 
 summary(model_adoption_prop_0)
 
 
-# Model 1: with interaction term
-model_adoption_prop_1 <- lm(
-  adoption_prop ~
-    minority_c * prej_discount_c,
-  data = dat
+# Model 1: Main effects and interaction
+model_adoption_prop_1 <- glm(
+  adoption_prop ~ minority_c * prej_discount_c,
+  data = dat,
+  family = quasibinomial(link = "logit")
 )
 
 summary(model_adoption_prop_1)
 
 
-# Compare models
+# Compare models using an F-test
+# Quasibinomial models use quasi-likelihood rather than
+# a full likelihood, so a standard likelihood-ratio test
+# or AIC comparison is not appropriate.
+
 anova(
   model_adoption_prop_0,
-  model_adoption_prop_1
+  model_adoption_prop_1,
+  test = "F"
 )
 
-# Basic regression diagnostics ------------------
+# Fractional logistic regression diagnostics ------------------
 
+# Check fitted values remain within [0, 1]
 predicted_values <- fitted(model_adoption_prop_1)
 
 n_outside <- sum(predicted_values < 0 | predicted_values > 1)
@@ -142,67 +210,80 @@ prop_outside <- mean(predicted_values < 0 | predicted_values > 1)
 cat("Fitted value range:\n")
 print(range(predicted_values))
 
-cat("Number of predictions outside [0, 1]:", n_outside, "\n")
+cat("Number of fitted values outside [0, 1]:", n_outside, "\n")
 cat("Proportion outside [0, 1]:", prop_outside, "\n")
 
-# Residuals vs fitted values
+# Pearson residuals vs fitted values
 png(
-  file.path(out, "residuals_vs_fitted.png"),
+  file.path(out, "fractional_logit_residuals.png"),
   width = 900,
   height = 650
 )
 
 plot(
   fitted(model_adoption_prop_1),
-  resid(model_adoption_prop_1),
-  xlab = "Fitted values",
-  ylab = "Residuals",
-  main = "Residuals vs Fitted"
+  residuals(model_adoption_prop_1, type = "pearson"),
+  xlab = "Predicted majority adoption proportion",
+  ylab = "Pearson residuals",
+  main = "Fractional Logit: Residuals vs Fitted"
 )
 
 abline(h = 0, lty = 2)
 
 dev.off()
 
+# H3: Moderation analysis ------------------
 
-# H3: Moderation analysis
-
+# Test interaction on the logit scale
 interaction_p <- summary(model_adoption_prop_1)$coefficients[
   "minority_c:prej_discount_c", "Pr(>|t|)"
 ]
 
-if (!is.na(interaction_p) && interaction_p < 0.05) {
-  
-  # Simple slopes analysis: Mean and +/- 1 SD
-  simple_slopes_results <- sim_slopes(
-    model_adoption_prop_1,
-    pred = minority_c,
-    modx = prej_discount_c
+# Predict majority adoption proportion on the response scale
+prediction_data <- expand.grid(
+  minority_prop = minority_levels,
+  prej_discount = prej_discount_levels
+) %>%
+  mutate(
+    minority_c = minority_prop - 0.25,
+    prej_discount_c = prej_discount - 0.50
   )
-  
-  print(simple_slopes_results)
-  
-  # Plot three predicted regression lines
-  plot_H3 <- interact_plot(
-    model_adoption_prop_1,
-    pred = minority_c,
-    modx = prej_discount_c,
-    interval = TRUE
-  )
-  
-  print(plot_H3)
-  
-  ggsave(
-    file.path(out, "interaction_simple_slopes.png"),
-    plot_H3,
-    width = 8,
-    height = 6,
-    dpi = 300
-  )
-  
-} else {
-  cat("Interaction not significant; simple slopes unpacking skipped.\n")
-}
+
+prediction_data$predicted_adoption <- predict(
+  model_adoption_prop_1,
+  newdata = prediction_data,
+  type = "response"
+)
+
+# Visualize the interaction at selected prejudice levels
+plot_H3 <- prediction_data %>%
+  filter(prej_discount %in% c(0, 0.5, 1)) %>%
+  ggplot(aes(
+    x = minority_prop,
+    y = predicted_adoption,
+    color = factor(prej_discount),
+    group = factor(prej_discount)
+  )) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Minority proportion × Prejudice discounting",
+    x = "Committed minority proportion",
+    y = "Predicted majority adoption proportion",
+    color = "Prejudice discounting"
+  ) +
+  theme_minimal()
+
+print(plot_H3)
+
+ggsave(
+  file.path(out, "interaction_predicted_adoption.png"),
+  plot_H3,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 
 
 # Logistic regression: Majority adoption threshold attainment
@@ -230,6 +311,60 @@ summary(model_adoption_0)
 summary(model_adoption_1)
 
 anova(model_adoption_0, model_adoption_1, test = "Chisq")
+
+# Check binary logistic regression convergence
+cat("Logistic model converged:", model_adoption_1$converged, "\n")
+
+cat("Range of fitted probabilities:\n")
+print(range(fitted(model_adoption_1)))
+
+# Unpack logistic regression interaction ------------------
+
+# Predict probability of majority adoption threshold attainment
+prediction_logistic <- expand.grid(
+  minority_prop = minority_levels,
+  prej_discount = prej_discount_levels
+) %>%
+  mutate(
+    minority_c = minority_prop - 0.25,
+    prej_discount_c = prej_discount - 0.50
+  )
+
+prediction_logistic$predicted_probability <- predict(
+  model_adoption_1,
+  newdata = prediction_logistic,
+  type = "response"
+)
+
+# Plot predicted probabilities at selected prejudice levels
+plot_logistic <- prediction_logistic %>%
+  filter(prej_discount %in% c(0, 0.5, 1)) %>%
+  ggplot(aes(
+    x = minority_prop,
+    y = predicted_probability,
+    color = factor(prej_discount),
+    group = factor(prej_discount)
+  )) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Majority adoption threshold attainment",
+    x = "Committed minority proportion",
+    y = "Predicted probability of threshold attainment",
+    color = "Prejudice discounting"
+  ) +
+  theme_minimal()
+
+print(plot_logistic)
+
+ggsave(
+  file.path(out, "logistic_interaction.png"),
+  plot_logistic,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 
 # Cox regression, survival analysis
 # Test how predictors affect time to majority adoption threshold attainment.
@@ -266,7 +401,7 @@ fit_cox <- function(time_var, event_var, interaction = FALSE) {
   )
 }
 
-# Time to adoption (H5)
+# Time to majority adoption threshold attainment
 
 model_cox_adoption_0 <- fit_cox("adoption_time", "adoption_reached", FALSE)
 
@@ -288,9 +423,11 @@ for (model in list(
 # Group prejudice discounting into three levels.
 dat$prej_discount_group <- cut(
   dat$prej_discount,
-  breaks = c(-0.01, 0.3, 0.7, 1),
-  labels = c("Low", "Medium", "High")
+  breaks = c(0, 0.3, 0.7, 1),
+  labels = c("Low", "Medium", "High"),
+  include.lowest = TRUE
 )
+table(dat$prej_discount, dat$prej_discount_group)
 
 
 # Plot and save Kaplan-Meier survival curves.
@@ -311,7 +448,7 @@ plot_km <- function(time_var, event_var, filename, title) {
     fit,
     col = 1:3,
     lwd = 2,
-    xlab = "Conversation rounds",
+    xlab = "Conversation ticks (one speaker-hearer interaction per tick)",
     ylab = "Probability of no event yet",
     main = title
   )
@@ -404,16 +541,18 @@ print(summary(model_adoption_prop_0))
 cat("\nMajority adoption proportion: Model 1\n")
 print(summary(model_adoption_prop_1))
 
-cat("\nMajority adoption proportion model comparison\n")
-print(anova(model_adoption_prop_0, model_adoption_prop_1))
+cat("\nFractional logistic regression model comparison\n")
+print(anova(
+  model_adoption_prop_0,
+  model_adoption_prop_1,
+  test = "F"
+))
 
 cat("\nModeration analysis\n")
 cat("Interaction p-value:", interaction_p, "\n")
 
-if (exists("simple_slopes_results")) {
-  cat("\nSimple slopes analysis\n")
-  print(simple_slopes_results)
-}
+cat("\nPredicted majority adoption proportions\n")
+print(prediction_data)
 
 cat("\nMajority adoption regression diagnostics\n")
 
@@ -426,8 +565,6 @@ print(n_outside)
 cat("\nProportion of fitted values outside [0, 1]:\n")
 print(prop_outside)
 
-cat("\nResidual standard deviation:\n")
-print(sd(resid(model_adoption_prop_1)))
 
 cat("\nThreshold attainment: Model 0\n")
 print(summary(model_adoption_0))
@@ -437,6 +574,9 @@ print(summary(model_adoption_1))
 
 cat("\nLogistic model comparison\n")
 print(anova(model_adoption_0, model_adoption_1, test = "Chisq"))
+
+cat("\nLogistic regression interaction: Predicted probabilities\n")
+print(prediction_logistic)
 
 cat("\nCox adoption models\n")
 if (!is.null(model_cox_adoption_0))
