@@ -1,0 +1,198 @@
+
+> cat("ABM simulation results\n\n")
+ABM simulation results
+
+
+> cat("Threshold attainment screening\n")
+Threshold attainment screening
+
+> cat("Total simulation runs:", n_runs, "\n")
+Total simulation runs: 5500 
+
+> cat("Threshold attained:", n_reached, "\n")
+Threshold attained: 0 
+
+> cat("Threshold attainment rate:", n_reached / n_runs, "\n\n")
+Threshold attainment rate: 0 
+
+
+> if (n_reached == 0) {
++   cat(
++     "No simulation reached the majority adoption threshold",
++     "within", max_ticks, "conversation ticks.\n",
++  .... [TRUNCATED] 
+No simulation reached the majority adoption threshold within 5000 conversation ticks.
+ Binary logistic regression and time-to-threshold analyses were not conducted.
+
+
+> cat("Majority adoption proportion: Model 0\n")
+Majority adoption proportion: Model 0
+
+> print(summary(model_adoption_prop_0))
+
+Call:
+glm(formula = adoption_prop ~ minority_c + prej_discount_c, family = quasibinomial(link = "logit"), 
+    data = dat)
+
+Coefficients:
+                Estimate Std. Error t value Pr(>|t|)    
+(Intercept)     -3.10327    0.00539  -575.8   <2e-16 ***
+minority_c       9.66588    0.05676   170.3   <2e-16 ***
+prej_discount_c -3.36706    0.01441  -233.6   <2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for quasibinomial family taken to be 0.004609364)
+
+    Null deviance: 499.209  on 5499  degrees of freedom
+Residual deviance:  30.873  on 5497  degrees of freedom
+AIC: NA
+
+Number of Fisher Scoring iterations: 7
+
+
+> cat("\nMajority adoption proportion: Model 1\n")
+
+Majority adoption proportion: Model 1
+
+> print(summary(model_adoption_prop_1))
+
+Call:
+glm(formula = adoption_prop ~ minority_c * prej_discount_c, family = quasibinomial(link = "logit"), 
+    data = dat)
+
+Coefficients:
+                            Estimate Std. Error  t value Pr(>|t|)    
+(Intercept)                -3.088570   0.005735 -538.585  < 2e-16 ***
+minority_c                  9.308423   0.077419  120.234  < 2e-16 ***
+prej_discount_c            -3.312807   0.016393 -202.091  < 2e-16 ***
+minority_c:prej_discount_c -1.496363   0.223807   -6.686 2.52e-11 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for quasibinomial family taken to be 0.00457046)
+
+    Null deviance: 499.21  on 5499  degrees of freedom
+Residual deviance:  30.67  on 5496  degrees of freedom
+AIC: NA
+
+Number of Fisher Scoring iterations: 7
+
+
+> cat("\nFractional logistic regression model comparison\n")
+
+Fractional logistic regression model comparison
+
+> print(anova(
++   model_adoption_prop_0,
++   model_adoption_prop_1,
++   test = "F"
++ ))
+Analysis of Deviance Table
+
+Model 1: adoption_prop ~ minority_c + prej_discount_c
+Model 2: adoption_prop ~ minority_c * prej_discount_c
+  Resid. Df Resid. Dev Df Deviance      F    Pr(>F)    
+1      5497     30.873                                 
+2      5496     30.670  1  0.20324 44.468 2.838e-11 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+> cat("\nModeration analysis\n")
+
+Moderation analysis
+
+> cat("Interaction p-value:", interaction_p, "\n")
+Interaction p-value: 2.521351e-11 
+
+> cat("\nPredicted majority adoption proportions\n")
+
+Predicted majority adoption proportions
+
+> print(prediction_data)
+   minority_prop prej_discount minority_c prej_discount_c predicted_adoption
+1           0.15           0.0      -0.10            -0.5        0.080333310
+2           0.20           0.0      -0.05            -0.5        0.126198548
+3           0.25           0.0       0.00            -0.5        0.192761341
+4           0.30           0.0       0.05            -0.5        0.283059386
+5           0.35           0.0       0.10            -0.5        0.394960958
+6           0.15           0.1      -0.10            -0.4        0.059853038
+7           0.20           0.1      -0.05            -0.4        0.094593469
+8           0.25           0.1       0.00            -0.4        0.146359127
+9           0.30           0.1       0.05            -0.4        0.219582881
+10          0.35           0.1       0.10            -0.4        0.315884443
+11          0.15           0.2      -0.10            -0.3        0.044342285
+12          0.20           0.2      -0.05            -0.3        0.070267045
+13          0.25           0.2       0.00            -0.3        0.109610299
+14          0.30           0.2       0.05            -0.3        0.167024837
+15          0.35           0.2       0.10            -0.3        0.246197803
+16          0.15           0.3      -0.10            -0.2        0.032711245
+17          0.20           0.3      -0.05            -0.2        0.051838420
+18          0.25           0.3       0.00            -0.2        0.081210792
+19          0.30           0.3       0.05            -0.2        0.125031322
+20          0.35           0.3       0.10            -0.2        0.187667337
+21          0.15           0.4      -0.10            -0.1        0.024054252
+22          0.20           0.4      -0.05            -0.1        0.038045211
+23          0.25           0.4       0.00            -0.1        0.059676297
+24          0.30           0.4       0.05            -0.1        0.092424362
+25          0.35           0.4       0.10            -0.1        0.140458945
+26          0.15           0.5      -0.10             0.0        0.017646526
+27          0.20           0.5      -0.05             0.0        0.027814447
+28          0.25           0.5       0.00             0.0        0.043581203
+29          0.30           0.5       0.05             0.0        0.067663380
+30          0.35           0.5       0.10             0.0        0.103611306
+31          0.15           0.6      -0.10             0.1        0.012923128
+32          0.20           0.6      -0.05             0.1        0.020276854
+33          0.25           0.6       0.00             0.1        0.031680809
+34          0.30           0.6       0.05             0.1        0.049176559
+35          0.35           0.6       0.10             0.1        0.075580197
+36          0.15           0.7      -0.10             0.2        0.009451865
+37          0.20           0.7      -0.05             0.2        0.014750922
+38          0.25           0.7       0.00             0.2        0.022951986
+39          0.30           0.7       0.05             0.2        0.035548080
+40          0.35           0.7       0.10             0.2        0.054670137
+41          0.15           0.8      -0.10             0.3        0.006906489
+42          0.20           0.8      -0.05             0.3        0.010714471
+43          0.25           0.8       0.00             0.3        0.016586965
+44          0.30           0.8       0.05             0.3        0.025594842
+45          0.35           0.8       0.10             0.3        0.039299133
+46          0.15           0.9      -0.10             0.4        0.005043090
+47          0.20           0.9      -0.05             0.4        0.007773842
+48          0.25           0.9       0.00             0.4        0.011965469
+49          0.30           0.9       0.05             0.4        0.018375351
+50          0.35           0.9       0.10             0.4        0.028121266
+51          0.15           1.0      -0.10             0.5        0.003680580
+52          0.20           1.0      -0.05             0.5        0.005635682
+53          0.25           1.0       0.00             0.5        0.008620337
+54          0.30           1.0       0.05             0.5        0.013164736
+55          0.35           1.0       0.10             0.5        0.020056350
+
+> cat("\nMajority adoption regression diagnostics\n")
+
+Majority adoption regression diagnostics
+
+> cat("Fitted value range:\n")
+Fitted value range:
+
+> print(range(fitted(model_adoption_prop_1)))
+[1] 0.00368058 0.39496096
+
+> cat("\nNumber of fitted values outside [0, 1]:\n")
+
+Number of fitted values outside [0, 1]:
+
+> print(n_outside)
+[1] 0
+
+> cat("\nProportion of fitted values outside [0, 1]:\n")
+
+Proportion of fitted values outside [0, 1]:
+
+> print(prop_outside)
+[1] 0
+
+> # cat("\nThreshold attainment: Model 0\n")
+> # print(summary(model_adoption_0))
+> # 
+> # cat("\nThreshold attainment: Model 1\n")
+> # print(summary( .... [TRUNCATED] 
