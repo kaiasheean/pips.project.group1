@@ -5,8 +5,9 @@ library(survival)
 
 set.seed(123)
 
-# create a folder "output" to store results, figures, csv
-out <- "outputs"
+# # Set directories for output folder
+data_dir <- "data"
+out <- file.path(data_dir, "outputs")
 dir.create(out, showWarnings = FALSE)
 
 
@@ -145,7 +146,7 @@ cat("Simulating", nrow(conditions), "runs...\n")
 summary_list <- vector("list", nrow(conditions))
 
 con <- file(
-  file.path(out, "simulation_timeseries.csv"),
+  file.path(data_dir, "simulation_timeseries.csv"),
   "wt"
 )
 
@@ -179,7 +180,7 @@ dat <- bind_rows(summary_list)
 
 write.csv(
   dat,
-  file.path(out, "simulation_runs.csv"),
+  file.path(data_dir, "simulation_runs.csv"),
   row.names = FALSE
 )
 
@@ -202,7 +203,7 @@ print(summary_data)
 
 write.csv(
   summary_data,
-  file.path(out, "summary_by_parameter.csv"),
+  file.path(data_dir, "summary_by_parameter.csv"),
   row.names = FALSE
 )
 
@@ -348,9 +349,9 @@ ggsave(
 fit_logistic <- function(outcome, interaction = FALSE) {
   
   rhs <- if (interaction) {
-    "minority_c * prej_discount_c + factor(n_agents)"
+    "minority_c * prej_discount_c"
   } else {
-    "minority_c + prej_discount_c + factor(n_agents)"
+    "minority_c + prej_discount_c"
   }
   
   formula <- as.formula(paste(outcome, "~", rhs))
@@ -442,9 +443,9 @@ fit_cox <- function(time_var, event_var, interaction = FALSE) {
   }
   
   rhs <- if (interaction) {
-    "minority_c * prej_discount_c + factor(n_agents)"
+    "minority_c * prej_discount_c"
   } else {
-    "minority_c + prej_discount_c + factor(n_agents)"
+    "minority_c + prej_discount_c"
   }
   
   formula <- as.formula(
