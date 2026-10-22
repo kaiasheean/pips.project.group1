@@ -50,6 +50,9 @@ simulate_one <- function(n_agents, minority_prop,
   support <- numeric(n_round + 1)
   support[1] <- group_n / n_agents
   
+  adoption_prop <- numeric(n_round + 1)
+  adoption_prop[1] <- 0
+  
   # Simulate attitude adoption over rounds
   for (round in seq_len(n_round)) {
     
@@ -67,10 +70,11 @@ simulate_one <- function(n_agents, minority_prop,
     adopted <- adopted + n_new
     
     support[round + 1] <- (group_n + adopted) / n_agents
+    adoption_prop[round + 1] <- adopted / majority_n
   }
   
   # Detect tipping-like acceleration
-  delta <- diff(support)
+  delta <- diff(adoption_prop)
   acceleration_round <- NA_integer_
   
   if (length(delta) >= 2 * TIP_WINDOW) {
@@ -87,14 +91,14 @@ simulate_one <- function(n_agents, minority_prop,
         after >= TIP_MULTIPLIER * max(before, 0.0005) &&
         after - before >= TIP_MIN_INCREASE
       ) {
-        acceleration_round <- t
+        acceleration_round <- t - TIP_WINDOW + 1L
         break
       }
     }
   }
   
-  # Detect majority adoption
-  adoption_hit <- which(support > adopt_thresh)
+  # Detect adoption among original majority agents
+  adoption_hit <- which(adoption_prop > adopt_thresh)
   
   adoption_round <- if (length(adoption_hit) > 0) {
     adoption_hit[1] - 1L
@@ -113,12 +117,13 @@ simulate_one <- function(n_agents, minority_prop,
     majority_n = majority_n,
     changed_majority_n = adopted,
     attitude_change_prop = adopted / majority_n,
+    adoption_prop = tail(adoption_prop, 1),
     final_support_prop = tail(support, 1),
     acceleration_reached = as.integer(!is.na(acceleration_round)),
-    rounds_to_tipping = acceleration_round,
+    rounds_to_acceleration = acceleration_round,
     adoption_reached = as.integer(!is.na(adoption_round)),
     rounds_to_adoption = adoption_round,
-    tipping_time = ifelse(
+    acceleration_time = ifelse(
       is.na(acceleration_round), n_round, acceleration_round
     ),
     adoption_time = ifelse(
@@ -130,7 +135,8 @@ simulate_one <- function(n_agents, minority_prop,
   series <- data.frame(
     run_id = run_id,
     round = 0:n_round,
-    support_prop = support
+    support_prop = support,
+    adoption_prop = adoption_prop
   )
   
   return(list(
@@ -193,8 +199,9 @@ summary_data <- dat %>%
   summarise(
     mean_attitude_change = mean(attitude_change_prop),
     sd_attitude_change = sd(attitude_change_prop),
+    mean_adoption_prop = mean(adoption_prop),
     mean_final_support = mean(final_support_prop),
-    p_tipping = mean(acceleration_reached),
+    p_acceleration = mean(acceleration_reached),
     p_adoption = mean(adoption_reached),
     .groups = "drop"
   )
@@ -255,6 +262,50 @@ anova(
   model_attitude_0,
   model_attitude_1
 )
+
+# Residual diagnostics for attitude change regression
+
+png(
+  file.path(out, "attitude_regression_diagnostics.png"),
+  width = 1200,
+  height = 1000
+)
+
+par(mfrow = c(2, 2))
+
+plot(model_attitude_1)
+
+dev.off()
+
+# Check predictions outside the valid proportion range
+
+predicted_values <- fitted(model_attitude_1)
+
+n_outside <- sum(
+  predicted_values < 0 | predicted_values > 1
+)
+
+prop_outside <- mean(
+  predicted_values < 0 | predicted_values > 1
+)
+
+cat("Number of predictions outside [0, 1]:", n_outside, "\n")
+cat("Proportion of predictions outside [0, 1]:", prop_outside, "\n")
+
+range(predicted_values)
+
+# Check heteroscedasticity
+
+plot(
+  fitted(model_attitude_1),
+  resid(model_attitude_1),
+  xlab = "Fitted values",
+  ylab = "Residuals",
+  main = "Residuals vs Fitted"
+)
+
+abline(h = 0, lty = 2)
+
 # H1 plot. Minority proportion
 plot_H1 <- ggplot(
   summary_data,
@@ -379,12 +430,12 @@ fit_logistic <- function(outcome, interaction = FALSE) {
 
 # H4: Tipping occurrence
 
-model_tipping_0 <- fit_logistic(
+model_acceleration_0 <- fit_logistic(
   "acceleration_reached",
   interaction = FALSE
 )
 
-model_tipping_1 <- fit_logistic(
+model_acceleration_1 <- fit_logistic(
   "acceleration_reached",
   interaction = TRUE
 )
@@ -420,9 +471,9 @@ compare_logistic <- function(model_0, model_1) {
   }
 }
 
-show_logistic(model_tipping_0)
-show_logistic(model_tipping_1)
-compare_logistic(model_tipping_0, model_tipping_1)
+show_logistic(model_acceleration_0)
+show_logistic(model_acceleration_1)
+compare_logistic(model_acceleration_0, model_acceleration_1)
 
 show_logistic(model_adoption_0)
 show_logistic(model_adoption_1)
@@ -465,9 +516,9 @@ fit_cox <- function(time_var, event_var, interaction = FALSE) {
 
 # Time to tipping (H4)
 
-model_cox_tipping_0 <- fit_cox("tipping_time", "acceleration_reached", FALSE)
+model_cox_acceleration_0 <- fit_cox("acceleration_time", "acceleration_reached", FALSE)
 
-model_cox_tipping_1 <- fit_cox("tipping_time", "acceleration_reached", TRUE)
+model_cox_acceleration_1 <- fit_cox("acceleration_time", "acceleration_reached", TRUE)
 
 # Time to adoption (H5)
 
@@ -477,7 +528,7 @@ model_cox_adoption_1 <- fit_cox("adoption_time", "adoption_reached", TRUE)
 
 # Display model results.
 for (model in list(
-  model_cox_tipping_0, model_cox_tipping_1,
+  model_cox_acceleration_0, model_cox_acceleration_1,
   model_cox_adoption_0, model_cox_adoption_1
 )) {
   if (!is.null(model)) print(summary(model))
@@ -531,7 +582,7 @@ plot_km <- function(time_var, event_var, filename, title) {
 }
 
 plot_km(
-  "tipping_time",
+  "acceleration_time",
   "acceleration_reached",
   "KM_tipping.png",
   "Time to tipping-like acceleration"
@@ -590,17 +641,22 @@ plot_heat(
 )
 
 plot_heat(
-  "p_tipping",
+  "p_acceleration",
   "Probability of tipping-like acceleration",
   "tipping_probability_heatmap.png"
 )
 
 plot_heat(
   "p_adoption",
-  "Probability of majority adoption",
+  "Probability of >50% adoption among original majority agents",
   "adoption_probability_heatmap.png"
 )
 
+plot_heat(
+  "mean_adoption_prop",
+  "Mean adoption proportion among original majority agents",
+  "adoption_proportion_heatmap.png"
+)
 
 # ============================================================
 # Export regression results
@@ -621,14 +677,28 @@ print(summary(model_attitude_1))
 cat("\nAttitude change model comparison\n")
 print(anova(model_attitude_0, model_attitude_1))
 
+cat("\nAttitude change regression diagnostics\n")
+
+cat("Fitted value range:\n")
+print(range(fitted(model_attitude_1)))
+
+cat("\nNumber of fitted values outside [0, 1]:\n")
+print(n_outside)
+
+cat("\nProportion of fitted values outside [0, 1]:\n")
+print(prop_outside)
+
+cat("\nResidual standard deviation:\n")
+print(sd(resid(model_attitude_1)))
+
 cat("\nTipping occurrence: Model 0\n")
-show_logistic(model_tipping_0)
+show_logistic(model_acceleration_0)
 
 cat("\nTipping occurrence: Model 1\n")
-show_logistic(model_tipping_1)
+show_logistic(model_acceleration_1)
 
 cat("\nTipping model comparison\n")
-compare_logistic(model_tipping_0, model_tipping_1)
+compare_logistic(model_acceleration_0, model_acceleration_1)
 
 cat("\nAdoption occurrence: Model 0\n")
 show_logistic(model_adoption_0)
@@ -640,10 +710,10 @@ cat("\nAdoption model comparison\n")
 compare_logistic(model_adoption_0, model_adoption_1)
 
 cat("\nCox tipping models\n")
-if (!is.null(model_cox_tipping_0))
-  print(summary(model_cox_tipping_0))
-if (!is.null(model_cox_tipping_1))
-  print(summary(model_cox_tipping_1))
+if (!is.null(model_cox_acceleration_0))
+  print(summary(model_cox_acceleration_0))
+if (!is.null(model_cox_acceleration_1))
+  print(summary(model_cox_acceleration_1))
 
 cat("\nCox adoption models\n")
 if (!is.null(model_cox_adoption_0))
