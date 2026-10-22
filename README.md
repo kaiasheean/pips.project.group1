@@ -1,37 +1,49 @@
-# Tipping points and prejudice: an agent-based model
+# Attitude Change in Minority–Majority Interactions
 
-A simulation app to explore how much an attitude shift in a population is
-impaired by prejudice towards the committed minority advocating for change.
-We investigate whether increasing the proportion of committed advocates 
-produces a tipping point, a threshold beyond which population-level 
-prejudice falls sharply.
+## Project overview
 
-Created for the Programming in Psychological Science course (UvA).
+This project was developed for the Programming in Psychological Science course at the University of Amsterdam.
 
+We developed an agent-based model (ABM) to investigate how the proportion of a committed minority and prejudice discounting influence pro-immigration attitude adoption among majority agents.
 
-## Getting started
-Clone the repository and open `main.Rmd` in RStudio:
+The model simulates interactions between committed minority agents and non-committed majority agents. Prejudice discounting reduces the probability that agents respond to influence from committed minority speakers.
 
-    git clone https://github.com/kaiasheean/pips.project.group1.git
+These are simplifying modelling assumptions and do not represent the full complexity of real-world immigration attitudes.
 
-Install the required packages:
+## Research question
 
-    install.packages(c("shiny", "ggplot2", "scales", "knitr", "rmarkdown", "here"))
+How do committed minority proportion and prejudice discounting affect the adoption of pro-immigration attitudes among majority agents?
 
-Run the chunks of `main.Rmd` from top to bottom. The Shiny app chunk is not
-evaluated when knitting and must be run manually.
+## Project structure
 
-## Repository structure
-    data/        Simulation output (CSV)
-    src/
-      model.R    Agent-based model functions
-      app.R      Shiny app
-      analysis.R Statistical analysis and plots
-    main.Rmd     Main deliverable
-    README.md
+- `main.Rmd` — Final report, including the model description, validation, statistical analysis, results, and discussion.
+- `src/simulation.R` — Agent-based simulation functions and Shiny application code.
+- `src/stat_analysis.R` — Statistical analyses and visualizations.
+- `src/validation.R` — Data validation and consistency checks.
+- `data/simulation_runs.csv` — Saved simulation results used in the final analysis.
+- `data/outputs/` — Additional simulation outputs, figures, and statistical results.
+- `references.bib` — Bibliographic references.
+- `apa.csl` — APA citation formatting.
 
-## Dependencies
-<!-- TODO: update this list once all code is merged -->
+## Experimental design
 
-## References
-See the bibliography in `main.Rmd`.
+The final experiment used:
+
+| Parameter | Value |
+|---|---|
+| Population size | 1,500 agents |
+| Committed minority proportion | 0.15–0.35, increments of 0.05 |
+| Prejudice discounting | 0–1, increments of 0.1 |
+| Maximum simulation duration | 5,000 conversation ticks |
+| Repetitions per condition | 100 |
+| Parameter combinations | 55 |
+| Total simulation runs | 5,500 |
+| Adoption threshold | More than 50% of majority agents |
+
+One tick represents one conversation between two agents.
+
+## How to reproduce the report
+
+1. Download or clone this repository.
+2. Open the project in RStudio.
+3. Ensure the
