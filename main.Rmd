@@ -47,6 +47,25 @@ shiny::runApp("src/app.R")
 <!-- TODO (Role 3): statistical analysis and plot -->
 
 ```{r analysis, eval=FALSE}
+# We conducted a parameter sweep varying the initial minority proportion (0.15–0.35) and prejudice discounting (0–1), with 100 repetitions per parameter combination, resulting in 5,500 simulation runs.
+# 
+# We examined three dependent variables: final majority adoption proportion, whether the majority adoption threshold (more than 50%) was reached, and the number of conversation ticks required to reach the threshold.
+# 
+# Descriptive statistics and heatmaps were used to visualize adoption across parameter combinations. We used fractional logistic regression to examine the effects of minority proportion, prejudice discounting, and their interaction on final majority adoption proportion. This method was chosen instead of linear regression because the dependent variable is bounded between 0 and 1.
+# 
+# Binary logistic regression and survival analysis were initially planned for the other two dependent variables. However, none of the simulations reached the adoption threshold. Therefore, these analyses could not be performed.
+
+# Results and Interpretation
+# 
+# The final majority adoption proportion ranged from 0% to 41.13%, with a mean of 7.62%.
+# 
+# Fractional logistic regression showed that a higher initial minority proportion was associated with greater majority adoption (b = 9.31, p < .001), while higher prejudice discounting was associated with lower adoption (b = −3.31, p < .001).
+# 
+# The interaction between minority proportion and prejudice discounting was also significant (b = −1.50, p < .001), suggesting that higher prejudice discounting weakened the positive effect of minority proportion on adoption on the logit scale. Including the interaction significantly improved model fit, F(1, 5496) = 44.47, p < .001.
+# 
+# However, none of the 5,500 simulations reached the majority adoption threshold within 5,000 conversation ticks. Therefore, the time required to reach this threshold could not be estimated.
+# 
+# Overall, the results suggest that larger committed minorities promote attitude adoption, while prejudice discounting reduces adoption and moderates the influence of minority size. Nevertheless, these effects were insufficient to produce majority adoption above the predefined threshold under the simulated conditions. Residual diagnostics also showed some systematic patterns, suggesting that the regression results should be interpreted with caution.
 ```
 
 ## 7. Discussion and limitations
