@@ -211,7 +211,6 @@ if (!is.na(interaction_p) && interaction_p < 0.05) {
 # 0 = threshold not attained; 1 = threshold attained.
 # Model 0: Main effects; Model 1: Interaction.
 
-# Logistic regression ------------------
 
 model_adoption_0 <- glm(
   adoption_reached ~ minority_c + prej_discount_c,
@@ -333,7 +332,7 @@ plot_km(
   "adoption_time",
   "adoption_reached",
   "KM_adoption.png",
-  "Time to majority adoption"
+  "Time to majority adoption threshold attainment"
 )
 
 
