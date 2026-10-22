@@ -4,157 +4,59 @@ library(tidyr)
 library(survival)
 library(interactions)
 
-set.seed(123)
+# Load the ABM simulation functions
+source("src/simulation.R")
 
-# # Set directories for output folder
+# Set directories for output folder
 data_dir <- "data"
 out <- file.path(data_dir, "outputs")
 dir.create(out, showWarnings = FALSE)
-
 
 # Simulation parameters ------------------
 
 n_agents_levels <- 1500
 minority_levels <- seq(0.15, 0.35, by = 0.05)
 prej_discount_levels <- seq(0, 1, by = 0.1)
-n_round <- 120
-n_repetitions <- 10 # Change to 100 after testing
 
+max_ticks <- 5000
+n_repetitions <- 10  # Change to 100 after testing
 adopt_thresh <- 0.50
 
-# Parameter sweep -------------------------
-conditions <- expand.grid(
-  n_agents = n_agents_levels,
-  minority_prop = minority_levels,
-  prej_discount = prej_discount_levels,
-  replicate = seq_len(n_repetitions),
-  KEEP.OUT.ATTRS = FALSE
+
+# Run ABM parameter sweep ------------------
+
+results <- run_sweep(
+  n_agents_levels = n_agents_levels,
+  minority_levels = minority_levels,
+  prej_discount_levels = prej_discount_levels,
+  n_repetitions = n_repetitions,
+  adoption_threshold = adopt_thresh,
+  max_ticks = max_ticks,
+  base_seed = 123,
+  record_series = FALSE,
+  output_dir = data_dir
 )
 
-conditions$run_id <- seq_len(nrow(conditions))
 
+# Prepare simulation data for statistical analysis
 
-# Simulate one run --------------------------
-
-simulate_one <- function(n_agents, minority_prop,
-                         prej_discount, replicate, run_id) {
-  
-  group_n <- round(n_agents * minority_prop)
-  majority_n <- n_agents - group_n
-  
-  adopted <- 0L
-  support <- numeric(n_round + 1)
-  support[1] <- group_n / n_agents
-  
-  adoption_prop <- numeric(n_round + 1)
-  adoption_prop[1] <- 0
-  
-  # Simulate attitude adoption over rounds
-  for (round in seq_len(n_round)) {
-    
-    peer_fraction <- adopted / n_agents
-    
-    influence <- (group_n / n_agents) * (1 - prej_discount) + 1.7 * peer_fraction
-    
-    p_switch <- min(0.50,max(0, 0.006 + 0.085 * influence))
-    
-    n_new <- rbinom(1,
-      size = majority_n - adopted,
-      prob = p_switch
-    )
-    
-    adopted <- adopted + n_new
-    
-    support[round + 1] <- (group_n + adopted) / n_agents
-    adoption_prop[round + 1] <- adopted / majority_n
-  }
-  
-  
-  # Detect adoption among original majority agents
-  adoption_hit <- which(adoption_prop >= adopt_thresh)
-  
-  adoption_round <- if (length(adoption_hit) > 0) {
-    adoption_hit[1] - 1L
-  } else {
-    NA_integer_
-  }
-  
-  # Run-level outcomes
-  summary <- data.frame(
-    run_id = run_id,
-    replicate = replicate,
-    n_agents = n_agents,
-    minority_prop = minority_prop,
-    prej_discount = prej_discount,
-    group_n = group_n,
-    majority_n = majority_n,
-    changed_majority_n = adopted,
-    adoption_prop = tail(adoption_prop, 1),
-    adoption_reached = as.integer(!is.na(adoption_round)),
-    rounds_to_adoption = adoption_round,
-    adoption_time = ifelse(
-      is.na(adoption_round), n_round, adoption_round
-    )
+dat <- results$runs %>%
+  rename(
+    adoption_prop = final_adoption,
+    adoption_reached = threshold_attained,
+    rounds_to_adoption = first_crossing_round,
+    adoption_time = observation_time,
+    final_support_prop = final_total_support
   )
-  
-  # Round-level outcomes
-  series <- data.frame(
-    run_id = run_id,
-    round = 0:n_round,
-    support_prop = support,
-    adoption_prop = adoption_prop
-  )
-  
-  return(list(
-    summary = summary,
-    series = series
-  ))
-}
 
-# Run simulations-------------------------
 
-cat("Simulating", nrow(conditions), "runs...\n")
+# Check the simulation output
 
-summary_list <- vector("list", nrow(conditions))
+head(dat)
 
-con <- file(
-  file.path(data_dir, "simulation_timeseries.csv"),
-  "wt"
-)
+summary(dat$adoption_prop)
 
-for (i in seq_len(nrow(conditions))) {
-  
-  x <- conditions[i, ]
-  
-  z <- simulate_one(
-    n_agents = x$n_agents,
-    minority_prop = x$minority_prop,
-    prej_discount = x$prej_discount,
-    replicate = x$replicate,
-    run_id = x$run_id
-  )
-  
-  summary_list[[i]] <- z$summary
-  
-  write.table(
-    z$series,
-    con,
-    sep = ",",
-    row.names = FALSE,
-    col.names = (i == 1),
-    quote = FALSE
-  )
-}
-
-close(con)
-
-dat <- bind_rows(summary_list)
-
-write.csv(
-  dat,
-  file.path(data_dir, "simulation_runs.csv"),
-  row.names = FALSE
-)
+table(dat$adoption_reached)
 
 # ============================================================
 # Descriptive analysis
@@ -178,7 +80,7 @@ print(summary_data)
 
 write.csv(
   summary_data,
-  file.path(data_dir, "summary_by_parameter.csv"),
+  file.path(data_dir, "summary_for_analysis.csv"),
   row.names = FALSE
 )
 
@@ -230,38 +132,25 @@ anova(
   model_adoption_prop_1
 )
 
-# Residual diagnostics for attitude change regression
-
-png(
-  file.path(out, "adoption_regression_diagnostics.png"),
-  width = 1200,
-  height = 1000
-)
-
-par(mfrow = c(2, 2))
-
-plot(model_adoption_prop_1)
-
-dev.off()
-
-# Check predictions outside the valid proportion range
+# Basic regression diagnostics ------------------
 
 predicted_values <- fitted(model_adoption_prop_1)
 
-n_outside <- sum(
-  predicted_values < 0 | predicted_values > 1
-)
+n_outside <- sum(predicted_values < 0 | predicted_values > 1)
+prop_outside <- mean(predicted_values < 0 | predicted_values > 1)
 
-prop_outside <- mean(
-  predicted_values < 0 | predicted_values > 1
-)
+cat("Fitted value range:\n")
+print(range(predicted_values))
 
 cat("Number of predictions outside [0, 1]:", n_outside, "\n")
-cat("Proportion of predictions outside [0, 1]:", prop_outside, "\n")
+cat("Proportion outside [0, 1]:", prop_outside, "\n")
 
-range(predicted_values)
-
-# Check heteroscedasticity
+# Residuals vs fitted values
+png(
+  file.path(out, "residuals_vs_fitted.png"),
+  width = 900,
+  height = 650
+)
 
 plot(
   fitted(model_adoption_prop_1),
@@ -273,6 +162,7 @@ plot(
 
 abline(h = 0, lty = 2)
 
+dev.off()
 
 
 # H3: Moderation analysis
@@ -315,85 +205,38 @@ if (!is.na(interaction_p) && interaction_p < 0.05) {
 }
 
 
-#H4 H5 Logistic regression
-# H4: Higher minority proportion increases tipping probability, while prejudice discounting decreases it.
-
-# H5: Higher minority proportion increases majority adoption probability, while prejudice discounting decreases it.
-# Fit logistic regression for binary outcomes (0 = no, 1 = yes).
+# Logistic regression: Majority adoption threshold attainment
+# Outcome: Whether more than 50% of the original majority
+# ever adopts the pro-immigrant attitude during a simulation.
+# 0 = threshold not attained; 1 = threshold attained.
 # Model 0: Main effects; Model 1: Interaction.
 
-fit_logistic <- function(outcome, interaction = FALSE) {
-  
-  rhs <- if (interaction) {
-    "minority_c * prej_discount_c"
-  } else {
-    "minority_c + prej_discount_c"
-  }
-  
-  formula <- as.formula(paste(outcome, "~", rhs))
-  
-  # A logistic model cannot be estimated with one outcome class
-  if (length(unique(dat[[outcome]])) < 2) {
-    message(outcome, ": only one outcome class.")
-    return(NULL)
-  }
-  
-  model <- glm(
-    formula,
-    data = dat,
-    family = binomial(),
-    control = glm.control(maxit = 100)
-  )
-  
-  if (!isTRUE(model$converged)) {
-    warning(outcome, ": logistic model did not converge.")
-  }
-  
-  return(model)
-}
+# Logistic regression ------------------
 
+model_adoption_0 <- glm(
+  adoption_reached ~ minority_c + prej_discount_c,
+  data = dat,
+  family = binomial(),
+  control = glm.control(maxit = 100)
+)
 
+model_adoption_1 <- glm(
+  adoption_reached ~ minority_c * prej_discount_c,
+  data = dat,
+  family = binomial(),
+  control = glm.control(maxit = 100)
+)
 
-# H5: Majority adoption occurrence
+summary(model_adoption_0)
+summary(model_adoption_1)
 
-model_adoption_0 <- fit_logistic("adoption_reached", interaction = FALSE)
-
-model_adoption_1 <- fit_logistic("adoption_reached", interaction = TRUE)
-
-#function to display logistic regression results
-
-show_logistic <- function(model) {
-  if (is.null(model)) {
-    cat("Model unavailable.\n")
-  } else {
-    print(summary(model))
-    cat("Converged:", model$converged, "\n")
-  }
-}
-
-# Compare Model 0 and Model 1 using a likelihood-ratio test.
-compare_logistic <- function(model_0, model_1) {
-  if (!is.null(model_0) &&
-      !is.null(model_1) &&
-      isTRUE(model_0$converged) &&
-      isTRUE(model_1$converged)) {
-    
-    print(anova(model_0, model_1, test = "Chisq"))
-    
-  } else {
-    cat("Comparison skipped: model unavailable or not converged.\n")
-  }
-}
-
-show_logistic(model_adoption_0)
-show_logistic(model_adoption_1)
-compare_logistic(model_adoption_0, model_adoption_1)
+anova(model_adoption_0, model_adoption_1, test = "Chisq")
 
 # Cox regression, survival analysis
-# H4-H5: Test how predictors affect time to tipping/adoption.
-# Runs without an event are right-censored at n_round.
+# Test how predictors affect time to majority adoption threshold attainment.
+# Runs without threshold attainment are right-censored at max_ticks.
+# Time is measured in conversation ticks, not population-wide rounds.
 # Model 0: Main effects; Model 1: Interaction.
-
 # Cox proportional hazards regression.
 fit_cox <- function(time_var, event_var, interaction = FALSE) {
   
@@ -441,8 +284,8 @@ for (model in list(
 
 
 # Kaplan-Meier curves
-# Kaplan-Meier: Compare time to tipping/adoption across low, medium, and high prejudice discounting.
-
+# Kaplan-Meier: Compare time to majority adoption threshold attainment
+# across low, medium, and high prejudice discounting.
 # Group prejudice discounting into three levels.
 dat$prej_discount_group <- cut(
   dat$prej_discount,
@@ -469,7 +312,7 @@ plot_km <- function(time_var, event_var, filename, title) {
     fit,
     col = 1:3,
     lwd = 2,
-    xlab = "Round",
+    xlab = "Conversation rounds",
     ylab = "Probability of no event yet",
     main = title
   )
@@ -498,7 +341,8 @@ plot_km(
 # Heatmaps
 # ============================================================
 
-# Visualize attitude change, tipping probability, and adoption probability across parameter combinations.
+# Visualize majority adoption proportion and threshold attainment
+# probability across parameter combinations.
 # Create and save a heatmap for a selected outcome.
 
 plot_heat <- function(variable, title, filename) {
@@ -553,15 +397,15 @@ plot_heat(
 
 sink(file.path(out, "model_results.txt"))
 
-cat("SYNTHETIC DATA - NOT FINAL ABM RESULTS\n\n")
+cat("ABM simulation results\n\n")
 
-cat("Attitude change: Model 0\n")
+cat("Majority adoption proportion: Model 0\n")
 print(summary(model_adoption_prop_0))
 
-cat("\nAttitude change: Model 1\n")
+cat("\nMajority adoption proportion: Model 1\n")
 print(summary(model_adoption_prop_1))
 
-cat("\nAttitude change model comparison\n")
+cat("\nMajority adoption proportion model comparison\n")
 print(anova(model_adoption_prop_0, model_adoption_prop_1))
 
 cat("\nModeration analysis\n")
@@ -572,7 +416,7 @@ if (exists("simple_slopes_results")) {
   print(simple_slopes_results)
 }
 
-cat("\nAttitude change regression diagnostics\n")
+cat("\nMajority adoption regression diagnostics\n")
 
 cat("Fitted value range:\n")
 print(range(fitted(model_adoption_prop_1)))
@@ -586,14 +430,14 @@ print(prop_outside)
 cat("\nResidual standard deviation:\n")
 print(sd(resid(model_adoption_prop_1)))
 
-cat("\nAdoption occurrence: Model 0\n")
-show_logistic(model_adoption_0)
+cat("\nThreshold attainment: Model 0\n")
+print(summary(model_adoption_0))
 
-cat("\nAdoption occurrence: Model 1\n")
-show_logistic(model_adoption_1)
+cat("\nThreshold attainment: Model 1\n")
+print(summary(model_adoption_1))
 
-cat("\nAdoption model comparison\n")
-compare_logistic(model_adoption_0, model_adoption_1)
+cat("\nLogistic model comparison\n")
+print(anova(model_adoption_0, model_adoption_1, test = "Chisq"))
 
 cat("\nCox adoption models\n")
 if (!is.null(model_cox_adoption_0))
