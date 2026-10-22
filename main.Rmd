@@ -1,6 +1,6 @@
 ---
 title: "Attitude Change in Minority–Majority Interactions: An Agent-Based Model Incorporating Prejudice Discounting"
-author: "Group 1"
+author: "Group 1, Kaia Sheean, Johnnie Pascalidis, Charlotte Kong"
 date: "`r Sys.Date()`"
 output: html_document
 bibliography: references.bib
@@ -31,6 +31,28 @@ Majority agents can be anti-immigration, pro-immigration, or in a mixed state (`
 
 One simulation tick represents **one conversation between two different agents**, not a population-wide round. A speaker and hearer are randomly selected. A mixed-state speaker randomly expresses one of the two attitudes. If the speaker is committed, the hearer's update is permitted with probability `1 - prej_discount`; otherwise the prejudice-discounting mechanism does not prevent the update. The model then applies its attitude-transition rules to eligible non-committed agents. These rules represent a hypothetical opinion-dynamics process, not observed conversational behavior.
 
+
+### Attitude updating rules
+
+The model uses three attitude states: `ANTI` (exclusively anti-immigration), `PRO` (exclusively pro-immigration), and `BOTH` (holding both attitudes).
+
+During each conversation, one agent is randomly selected as the speaker and another as the listener. The listener's attitude changes according to the attitude expressed by the speaker.
+
+| Listener's initial state | Speaker expresses | Listener's new state |
+|:--|:--|:--|
+| ANTI | ANTI | ANTI |
+| ANTI | PRO | BOTH |
+| PRO | ANTI | BOTH |
+| PRO | PRO | PRO |
+| BOTH | ANTI | ANTI |
+| BOTH | PRO | PRO |
+
+These transitions apply when the listener is non-committed and the update is permitted. Committed agents always remain `PRO`.
+
+If a speaker is in the `BOTH` state, they randomly express either `ANTI` or `PRO`. When the listener already agrees with the expressed attitude or is in the `BOTH` state, a non-committed speaker also adopts their own expressed attitude. Otherwise, the speaker's state remains unchanged.
+
+Prejudice discounting applies only when the speaker is committed. The listener's update is permitted with probability `1 - prej_discount`. When the update is blocked, the listener retains their previous attitude. Conversations involving non-committed speakers are not subject to this discounting mechanism.
+
 ### Experimental design
 
 The complete saved experiment uses the following settings:
@@ -49,23 +71,27 @@ All runs continue to the common endpoint even if an adoption threshold is crosse
 
 ## 3. Reproducible data loading and validation
 
-The final 5,500 runs are stored in `data/simulation_runs.csv`. We load these saved outputs rather than rerunning the computationally intensive parameter sweep each time the report is knitted. The simulation functions and optional Shiny interface are retained in `src/simulation.R`; the analysis code is in `src/stat_analysis.R`.
+The final dataset contains 5,500 simulation runs, which are loaded below to reproduce the statistical analyses without regenerating the full experiment.
 
 ```{r load-and-validate}
 source("src/validation.R")
+
 simulation_data <- read.csv("data/simulation_runs.csv")
+
 validate_results(simulation_data)
+
 stopifnot(nrow(simulation_data) == 5500L)
 stopifnot(all(simulation_data$n_agents == 1500L))
 ```
 
+
 The validation routine checks that essential output columns are present, adoption values are non-missing and between 0 and 1, majority state counts are valid nonnegative integers and sum to the total majority population, the threshold indicator is binary, and `final_adoption` agrees with the ratio of fully pro-immigration majority agents to all majority agents. These consistency checks **do not prove that the model's behavioural assumptions are empirically valid**.
 
-### Optional small model smoke test
+### Reproducible simulation demonstration
 
-The following chunk is deliberately not evaluated when knitting. It demonstrates a quick test of the executable simulation without regenerating all 5,500 runs.
+The following code runs a small, reproducible demonstration of the agent-based model using 100 agents and two repetitions. The complete dataset of 5,500 runs is used for the statistical analysis.
 
-```{r optional-smoke-test, eval=FALSE}
+```{r simulation-demo}
 source("src/simulation.R")
 test_results <- run_sweep(
   n_agents_levels = 100,
@@ -73,9 +99,12 @@ test_results <- run_sweep(
   prej_discount_levels = 0.5,
   n_repetitions = 2,
   max_ticks = 100,
-  base_seed = 123
+  base_seed = 123,
+  output_dir = file.path(tempdir(), "pips_demo")
 )
 validate_results(test_results$runs)
+
+head(test_results$runs)
 ```
 
 ## 4. Statistical analysis
@@ -142,7 +171,48 @@ ggplot(descriptive_summary,
   ) +
   theme_minimal()
 ```
+### Final distribution of majority attitudes
 
+To examine attitude change beyond exclusive pro-immigration adoption,
+we visualize the final proportions of majority agents in the
+ANTI, BOTH, and PRO states across experimental conditions.
+
+```{r final-attitude-states, fig.width=9, fig.height=5}
+library(tidyr)
+
+state_summary <- simulation_data %>%
+  group_by(minority_prop, prej_discount) %>%
+  summarise(
+    ANTI = mean(final_anti_majority_n / n_majority),
+    BOTH = mean(final_mixed_majority_n / n_majority),
+    PRO = mean(final_pro_majority_n / n_majority),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(ANTI, BOTH, PRO),
+    names_to = "Attitude",
+    values_to = "Proportion"
+  )
+
+ggplot(
+  state_summary,
+  aes(
+    x = prej_discount,
+    y = Proportion,
+    color = Attitude
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  facet_wrap(~minority_prop, labeller = label_both) +
+  labs(
+    title = "Final majority attitude distributions",
+    x = "Prejudice discounting",
+    y = "Mean proportion of majority agents",
+    color = "Attitude"
+  ) +
+  theme_minimal()
+```
 ## 5. Interactive application
 
 The Shiny visualization is optional and was not needed to calculate or validate the saved statistical results. The current repository retains app code in `src/simulation.R` alongside the model functions. It is not launched while knitting this report. If the group later separates the application into `src/app.R`, this section can be updated to document that entry point.
@@ -154,5 +224,7 @@ The simulated results are consistent with the idea that a larger committed minor
 The model simplifies immigrant and majority identities, assumes fixed committed attitudes, uses randomly selected pairwise interactions, and represents prejudice with one speaker-specific discounting parameter. Furthermore, 5,000 interactions correspond to relatively few conversations per agent on average in a population of 1,500; longer runs might produce different outcomes. Patterns in residual diagnostics also caution against treating the regression as a complete description of the data-generating process. Runs at distinct seeds are computational replications within this model, not independent samples of real people.
 
 Future work could compare alternative interaction rules, longer time horizons, and network-based rather than uniformly random contact. The present study is a demonstration of an ABM and its sensitivity to two parameters, not an empirical estimate of immigration attitudes or a demonstrated social tipping point.
+
+In this model, the term committed minority refers to a simulated role rather than a direct representation of immigrants or any specific demographic population. Similarly, prejudice discounting represents reduced responsiveness to messages from committed minority speakers, rather than the full psychological construct of prejudice. Consequently, the results demonstrate how these assumptions influence simulated attitude dynamics, but they do not establish equivalent causal relationships in real-world intergroup interactions.
 
 ## References
