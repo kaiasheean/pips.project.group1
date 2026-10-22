@@ -3,267 +3,156 @@ title: "Attitude Change in Minority–Majority Interactions: An Agent-Based Mode
 author: "Group 1"
 date: "`r Sys.Date()`"
 output: html_document
-# Contains the bibliographic entries used for citations.
 bibliography: references.bib
-# Formats citations and the reference list in APA 7th edition style.
 csl: apa.csl
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
 ## 1. Introduction
 
-Previous research has identified intergroup contact and group membership
-as important factors in understanding prejudice and intergroup attitudes
-[@allport1954; @pettigrew2006]. Research on minority influence also suggests
-that committed minorities can promote collective social change. Xie et al.
-used an opinion-dynamics model to investigate how committed minorities can
-drive social change [@xie2011social]. Centola et al. provided experimental
-evidence of tipping points in social convention change
-[@centola2018experimental]. These studies motivate an investigation of
-minority influence, but do not establish that the same dynamics necessarily
-apply to immigration attitudes.
+Intergroup contact, group membership, and minority influence are relevant to understanding prejudice and changes in social attitudes [@allport1954; @pettigrew2006; @xie2011social]. Research on changes in social conventions also motivates studying collective attitude dynamics [@centola2018experimental], although it does not establish that the same processes occur for immigration attitudes. Source-credibility research further motivates examining whether an audience's receptiveness depends on who communicates a message [@hovland1951credibility].
 
-Our proposed agent-based model incorporates prejudice discounting as a
-potential barrier to pro-immigration attitude adoption by the majority.
-Research on source credibility provides a broader motivation for examining
-how receptiveness to a message depends on its source
-[@hovland1951credibility]. In our model, prejudice discounting reduces
-receptiveness to influence from immigrant minority speakers. This
-minority-specific reduction is a simplifying modelling assumption rather
-than a direct finding of the source-credibility research.
+We use an agent-based model (ABM) to investigate how the proportion of a committed minority and prejudice discounting influence the adoption of pro-immigration attitudes among majority agents. Prejudice discounting is implemented as a reduced probability that a majority agent responds to an interaction with a committed minority speaker. This is a modelling assumption, not an empirical claim about immigrant or majority populations.
 
-At a fixed population size, we investigate how committed minority
-proportion and prejudice discounting affect final pro-immigration attitude
-adoption among majority agents, whether a predefined adoption threshold is
-reached, and the time until it is first reached. We also examine whether
-prejudice discounting shifts a possible critical committed minority
-proportion around which majority adoption outcomes change sharply. This
-possible tipping point is assessed across repeated simulations, rather than
-identified by crossing an adoption threshold in a single run.
+Our main outcome is the final proportion of majority agents holding an exclusively pro-immigration attitude. We also record whether adoption ever exceeds a predefined 50% threshold and the first tick when that occurs. This operational adoption threshold is **not** a claim that the model identifies a social tipping point.
 
 ## 2. The model
 
-The model examines how committed minority proportion and prejudice
-discounting affect the spread of pro-immigration attitudes in a population
-of fixed size.
+### Agents and attitudes
 
-### Agents and initial attitudes
+Each run starts with a fixed population. A specified proportion are committed minority agents who consistently hold a pro-immigration attitude; all other agents are non-committed majority agents who initially hold an anti-immigration attitude. These initial conditions are simplifying assumptions rather than representations of real-world demographic groups.
 
-In the proposed initialisation, immigrant minority agents hold a fully
-pro-immigration attitude and remain committed to it throughout the
-simulation. All majority agents initially hold an anti-immigration
-attitude and are non-committed, allowing their attitudes to change. This
-initial division is a simplifying modelling assumption, not a claim about
-the attitudes of real immigrant or majority populations.
+Majority agents can be anti-immigration, pro-immigration, or in a mixed state (`BOTH`). Mixed-state agents are not counted as fully adopting the pro-immigration position. Committed agents do not change state.
 
-Majority agents can hold an anti-immigration attitude, a pro-immigration
-attitude, or both attitudes. Minority agents remain fully pro-immigration.
-Holding both attitudes represents the model's mixed state and does not
-count as full pro-immigration adoption.
+### Interactions and prejudice discounting
 
-Immigration attitude and prejudice discounting are distinct concepts in
-this model: attitude is an agent's current state, whereas prejudice
-discounting controls receptiveness to minority influence. The proposed
-code label for the fully pro-immigration state is `pro_img`, replacing
-`NOT_PREJUDICED`. Until that code change is implemented, `NOT_PREJUDICED`
-remains the existing label for this state; `BOTH` denotes the mixed state.
+One simulation tick represents **one conversation between two different agents**, not a population-wide round. A speaker and hearer are randomly selected. A mixed-state speaker randomly expresses one of the two attitudes. If the speaker is committed, the hearer's update is permitted with probability `1 - prej_discount`; otherwise the prejudice-discounting mechanism does not prevent the update. The model then applies its attitude-transition rules to eligible non-committed agents. These rules represent a hypothetical opinion-dynamics process, not observed conversational behavior.
 
-### Fixed population size
+### Experimental design
 
-For the proposed experiments, population size (`group_n`) is fixed at
-1,500 agents across conditions. It is a simulation setting, not an
-independent variable. This value is a modelling choice; no claim is made
-that the cited studies prescribe a population size of 1,500.
+The complete saved experiment uses the following settings:
 
-### Independent variables
+| Parameter | Value |
+|:--|:--|
+| Total population | 1,500 agents |
+| Committed minority proportion | 0.15 to 0.35, in steps of 0.05 |
+| Prejudice discounting | 0 to 1, in steps of 0.1 |
+| Maximum duration | 5,000 conversation ticks |
+| Repetitions per combination | 100 |
+| Adoption criterion | More than 50% of majority agents fully pro-immigration |
+| Total simulations | 5,500 (55 combinations × 100 repetitions) |
 
-We vary two model parameters:
+All runs continue to the common endpoint even if an adoption threshold is crossed earlier. The output records `first_crossing_round`, `threshold_attained`, and `final_adoption` for each run. A crossing is defined strictly as a majority adoption proportion **greater than** 0.5, excluding committed minority and mixed-state agents from the adoption count.
 
-- **Minority proportion (`minority_prop`):** the proportion of agents
-  belonging to the committed immigrant minority.
-- **Prejudice discounting:** a parameter between 0 and 1 that reduces
-  receptiveness to minority speakers. When the speaker belongs to the
-  minority, the hearer's update is permitted with probability 1 minus
-  this parameter. Higher values therefore mean stronger discounting of
-  minority influence. When the speaker is not a minority agent, this
-  mechanism does not block the hearer's update. Committed agents do not
-  change their attitudes. The proposed parameter name is `prej_discount`,
-  replacing `prejudice_discount`; the documentation and code must use
-  consistent names once this rename is implemented.
+## 3. Reproducible data loading and validation
 
-### Hearer attitude updates
+The final 5,500 runs are stored in `data/simulation_runs.csv`. We load these saved outputs rather than rerunning the computationally intensive parameter sweep each time the report is knitted. The simulation functions and optional Shiny interface are retained in `src/simulation.R`; the analysis code is in `src/stat_analysis.R`.
 
-During an interaction, `hearer_updates` indicates whether the hearer is
-permitted to update their attitude. TRUE (1) permits an update, provided
-the hearer is not committed; FALSE (0) blocks the hearer's update. It is a
-binary interaction-level indicator, not the agent's attitude state or
-the prejudice-discounting parameter.
-
-Under the interaction rule described for the existing implementation,
-if the hearer already holds the communicated attitude, either alone or
-as part of a mixed attitude, an allowed update leaves the hearer holding
-only the communicated attitude. Otherwise, an allowed update gives the
-hearer a mixed attitude. In the former case, a non-committed speaker also
-retains only the communicated attitude; the speaker's update is not gated
-by `hearer_updates`.
-
-### Outcome measures
-
-**Adoption proportion** is calculated among majority agents only: the
-number of initially anti-immigration majority agents who currently hold a
-fully pro-immigration attitude, divided by the total number of majority
-agents. Committed minority agents are excluded from both the numerator and
-the denominator. Mixed attitudes do not count as full adoption. Under the
-proposed initialisation, the non-committed agents are exactly the majority
-agents.
-
-This measure reflects attitude change in the majority and is not
-mechanically inflated by the proportion of committed minority agents,
-who already support immigration at the start.
-
-The **adoption threshold** is a predefined operational success criterion,
-not a tipping point. If the threshold is set to 0.5, it is reached when
-more than 50% of majority agents hold a fully pro-immigration attitude.
-Exactly 50% does not meet this strict criterion. The threshold value must
-be confirmed in the simulation settings before the full experiment.
-The existing code name `tip_level` should be renamed to
-`adoption_threshold` to make this distinction explicit.
-
-Our planned primary outcomes are:
-
-- **Final adoption proportion:** majority adoption proportion at a common,
-  fixed simulation endpoint, measured for every run.
-- **Adoption threshold reached:** a binary indicator, coded 1 if the
-  adoption threshold is exceeded at any point within the simulation
-  period and 0 otherwise.
-
-Our planned secondary outcome is **rounds to adoption threshold**: the
-first conversation round in which the adoption threshold is exceeded.
-Runs that do not reach it are right-censored at the simulation time limit,
-meaning that the threshold-crossing time is not observed within that
-period. Their first-crossing result is recorded as `NA`, alongside a
-threshold-attainment indicator of 0.
-
-Threshold attainment records whether the criterion was ever reached; it
-does not necessarily mean that adoption remains above the threshold at
-the final endpoint. Final adoption is therefore recorded separately.
-
-### Planned simulation duration and implementation changes
-
-Every run will continue to the same fixed maximum number of conversation
-rounds, even if the adoption threshold is reached earlier. The function
-will record the first threshold-crossing round without ending the
-simulation at that point. At the endpoint, it will return:
-
-- `first_cross`: the first round above the adoption threshold, or `NA`
-  if the threshold was never exceeded.
-- `reached`: 1 if the threshold was exceeded within the simulation
-  period and 0 otherwise.
-- `final_adoption`: majority adoption proportion at the fixed endpoint.
-
-In the implementation previously described, an early `return()` ends the
-simulation when the threshold is first reached. That early return must
-be replaced with recording logic to support the planned measurements.
-These outcomes remain planned until the function and its calling code
-have been updated and tested.
-
-The simulation protocol must specify the maximum number of rounds, what
-one conversation round represents, the parameter values to test, and the
-number of repeated runs per condition. Code renames for attitude states,
-prejudice discounting, and the adoption threshold must also be applied
-consistently before enabling the example and analysis chunks below.
-
-### Assessing a possible tipping point
-
-At the fixed population size, we will compare repeated simulations across
-minority proportions for each prejudice-discounting level. We will assess
-whether final majority adoption or the probability of reaching the
-adoption threshold changes sharply around a particular committed minority
-proportion.
-
-A possible **tipping threshold** refers here to the critical committed
-minority proportion associated with such a sharp transition. It is not
-the predefined adoption threshold. We will examine whether prejudice
-discounting shifts the location of this possible transition.
-
-Reaching the adoption threshold within one run is not itself evidence of
-a tipping point. A possible tipping point is assessed from patterns across
-parameter conditions and repeated runs, and is not a separate outcome
-returned by each simulation. The analysis must specify how a sharp
-transition will be assessed. If outcomes change gradually, we will report
-that no clear tipping point was identified under the conditions tested.
-
-## 3. Load the code
-
-The model code lives in `src/`. These chunks remain disabled until the
-files and function interfaces are confirmed.
-
-```{r load-code, eval=FALSE}
-source("src/model.R")
-source("src/analysis.R")
+```{r load-and-validate}
+source("src/validation.R")
+simulation_data <- read.csv("data/simulation_runs.csv")
+validate_results(simulation_data)
+stopifnot(nrow(simulation_data) == 5500L)
+stopifnot(all(simulation_data$n_agents == 1500L))
 ```
 
-## 4. Example run
+The validation routine checks that essential output columns are present, adoption values are non-missing and between 0 and 1, majority state counts are valid nonnegative integers and sum to the total majority population, the threshold indicator is binary, and `final_adoption` agrees with the ratio of fully pro-immigration majority agents to all majority agents. These consistency checks **do not prove that the model's behavioural assumptions are empirically valid**.
 
-The existing example below remains disabled. Its arguments and output
-fields must be checked against the updated model interface before use;
-it is not the specification of the full simulation experiment.
+### Optional small model smoke test
 
-```{r example-run, eval=FALSE}
-p   <- default_params()
-res <- run_model(p, committed_share = 0.3, max_ticks = 100, record = TRUE)
-head(res$history)
+The following chunk is deliberately not evaluated when knitting. It demonstrates a quick test of the executable simulation without regenerating all 5,500 runs.
+
+```{r optional-smoke-test, eval=FALSE}
+source("src/simulation.R")
+test_results <- run_sweep(
+  n_agents_levels = 100,
+  minority_levels = 0.25,
+  prej_discount_levels = 0.5,
+  n_repetitions = 2,
+  max_ticks = 100,
+  base_seed = 123
+)
+validate_results(test_results$runs)
 ```
 
-## 5. Interactive app
+## 4. Statistical analysis
 
-Run this chunk manually. It is not evaluated when knitting.
+We examined the average final majority adoption proportion across parameter combinations. Because this outcome is bounded between 0 and 1, the statistical analysis used a fractional logistic regression with a quasibinomial logit link. The predictors were committed minority proportion, prejudice discounting, and their interaction. The model comparison assessed whether the interaction improved fit. The associated analysis and figure-generating script is `src/stat_analysis.R`; its output can be reproduced separately from the saved CSV.
 
-```{r app, eval=FALSE}
-shiny::runApp("src/app.R")
+```{r summary-statistics}
+library(dplyr)
+
+descriptive_summary <- simulation_data %>%
+  group_by(minority_prop, prej_discount) %>%
+  summarise(
+    n_runs = n(),
+    mean_adoption = mean(final_adoption),
+    threshold_rate = mean(threshold_attained),
+    .groups = "drop"
+  )
+
+overall_adoption <- summary(simulation_data$final_adoption)
+overall_adoption
 ```
 
-## 6. Analysis
+```{r fractional-regression}
+analysis_data <- simulation_data %>%
+  mutate(
+    minority_c = minority_prop - 0.25,
+    prej_discount_c = prej_discount - 0.5
+  )
 
-```{r analysis, eval=FALSE}
-# We conducted a parameter sweep varying the initial minority proportion (0.15–0.35) and prejudice discounting (0–1), with 100 repetitions per parameter combination, resulting in 5,500 simulation runs.
-# 
-# We examined three dependent variables: final majority adoption proportion, whether the majority adoption threshold (more than 50%) was reached, and the number of conversation ticks required to reach the threshold.
-# 
-# Descriptive statistics and heatmaps were used to visualize adoption across parameter combinations. We used fractional logistic regression to examine the effects of minority proportion, prejudice discounting, and their interaction on final majority adoption proportion. This method was chosen instead of linear regression because the dependent variable is bounded between 0 and 1.
-# 
-# Binary logistic regression and survival analysis were initially planned for the other two dependent variables. However, none of the simulations reached the adoption threshold. Therefore, these analyses could not be performed.
+model_main <- glm(
+  final_adoption ~ minority_c + prej_discount_c,
+  family = quasibinomial(link = "logit"),
+  data = analysis_data
+)
 
-# Results and Interpretation
-# 
-# The final majority adoption proportion ranged from 0% to 41.13%, with a mean of 7.62%.
-# 
-# Fractional logistic regression showed that a higher initial minority proportion was associated with greater majority adoption (b = 9.31, p < .001), while higher prejudice discounting was associated with lower adoption (b = −3.31, p < .001).
-# 
-# The interaction between minority proportion and prejudice discounting was also significant (b = −1.50, p < .001), suggesting that higher prejudice discounting weakened the positive effect of minority proportion on adoption on the logit scale. Including the interaction significantly improved model fit, F(1, 5496) = 44.47, p < .001.
-# 
-# However, none of the 5,500 simulations reached the majority adoption threshold within 5,000 conversation ticks. Therefore, the time required to reach this threshold could not be estimated.
-# 
-# Overall, the results suggest that larger committed minorities promote attitude adoption, while prejudice discounting reduces adoption and moderates the influence of minority size. Nevertheless, these effects were insufficient to produce majority adoption above the predefined threshold under the simulated conditions. Residual diagnostics also showed some systematic patterns, suggesting that the regression results should be interpreted with caution.
+model_interaction <- glm(
+  final_adoption ~ minority_c * prej_discount_c,
+  family = quasibinomial(link = "logit"),
+  data = analysis_data
+)
+
+summary(model_interaction)
+anova(model_main, model_interaction, test = "F")
 ```
 
-## 7. Discussion and limitations
+### Results
 
-The initial alignment of minority membership with committed
-pro-immigration attitudes and majority membership with anti-immigration
-attitudes is a simplifying assumption. It does not represent the full
-range of attitudes within real immigrant or majority populations.
-Likewise, minority-specific prejudice discounting represents one proposed
-influence mechanism rather than a comprehensive model of prejudice.
+Across the 5,500 runs, final majority adoption ranged from approximately 0% to 41.13%, with a mean near 7.62%. A larger committed minority proportion was associated with greater adoption, whereas stronger prejudice discounting was associated with less adoption. The fractional logistic regression found a positive coefficient for minority proportion (approximately 9.31, *p* < .001), a negative coefficient for prejudice discounting (approximately −3.31, *p* < .001), and a negative interaction (approximately −1.50, *p* < .001). The interaction improved model fit, *F*(1, 5496) = 44.47, *p* < .001. The interaction suggests that the effect of minority proportion was weaker as prejudice discounting increased, on the model's logit scale.
 
-The adoption threshold is an operational measurement choice, and final
-outcomes depend on the simulation duration and interaction rules. A sharp
-transition observed within this model would not by itself establish a
-corresponding tipping point in real-world immigration attitudes. Final
-interpretation must be based on the implemented model, repeated
-simulations, and the uncertainty in the resulting estimates.
+No simulation exceeded the predefined 50% majority-adoption threshold, so threshold attainment was 0 in all 5,500 runs. Therefore, a binary logistic regression of threshold attainment and a time-to-threshold analysis were not informative. Nevertheless, final adoption proportions varied, allowing an analysis of their association with the experimental parameters.
+
+```{r observed-adoption-heatmap, fig.width=8, fig.height=5}
+library(ggplot2)
+
+ggplot(descriptive_summary,
+       aes(x = minority_prop, y = prej_discount, fill = mean_adoption)) +
+  geom_tile() +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+  labs(
+    title = "Mean final majority adoption by experimental condition",
+    x = "Committed minority proportion",
+    y = "Prejudice discounting",
+    fill = "Adoption"
+  ) +
+  theme_minimal()
+```
+
+## 5. Interactive application
+
+The Shiny visualization is optional and was not needed to calculate or validate the saved statistical results. The current repository retains app code in `src/simulation.R` alongside the model functions. It is not launched while knitting this report. If the group later separates the application into `src/app.R`, this section can be updated to document that entry point.
+
+## 6. Discussion and limitations
+
+The simulated results are consistent with the idea that a larger committed minority can promote attitude change, while prejudice discounting can hinder it. Yet no condition led more than half of majority agents to adopt a fully pro-immigration attitude within 5,000 conversations. This result reflects the particular model rules, initial conditions, parameter grid, and simulation duration; it does not establish that comparable real-world attitude change is impossible.
+
+The model simplifies immigrant and majority identities, assumes fixed committed attitudes, uses randomly selected pairwise interactions, and represents prejudice with one speaker-specific discounting parameter. Furthermore, 5,000 interactions correspond to relatively few conversations per agent on average in a population of 1,500; longer runs might produce different outcomes. Patterns in residual diagnostics also caution against treating the regression as a complete description of the data-generating process. Runs at distinct seeds are computational replications within this model, not independent samples of real people.
+
+Future work could compare alternative interaction rules, longer time horizons, and network-based rather than uniformly random contact. The present study is a demonstration of an ABM and its sensitivity to two parameters, not an empirical estimate of immigration attitudes or a demonstrated social tipping point.
 
 ## References
