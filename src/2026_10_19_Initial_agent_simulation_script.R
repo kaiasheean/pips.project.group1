@@ -1,12 +1,20 @@
-#Version_3.1_Similation_app_data_preparation_for_analyses
+# Version_3.2_Simulation_app_data_preparation_for_analyses
 
 # ================================================================
-# USE AS ONE FILE OR TWO FILES
+# USE AS ONE FILE OR SEPARATE FILES
 # ================================================================
 # ONE FILE: save this entire script as app.R and click Run App.
+# To run the original checks before the app starts, uncomment the
+# check_model() call at the end of Section 1.
+# Alternatively, execute Section 1 only and call check_model() in RStudio.
 # TWO FILES: save Section 1 as simulation.R and Section 2 as app.R.
 # Keep both files in the same folder and launch app.R with Run App.
+# OPTIONAL: later move individual functions into the files outlined below.
 # All headings in this file are R comments and can be copied safely.
+#
+# CHANGED DEFAULT: run_sweep() uses n_agents_levels = 1500.
+# Repetitions remain 10. run_model() and the Shiny controls are unchanged.
+# The original check_model() is retained without additional tests.
 #
 # TWO ANALYSES:
 # 1. Threshold-attainment frequency across repeated simulation runs.
@@ -21,6 +29,25 @@
 # ================================================================
 # SECTION 1 — SIMULATION.R
 # ================================================================
+
+# OPTIONAL TEMPLATE FOR SEPARATE FUNCTION FILES
+# Create the R folder and move each COMPLETE function definition into
+# its indicated file when ready. simulation.R can then be a loader.
+# Keep simulation.R and app.R in the project folder, beside the R folder.
+# Source paths below are relative to that project working directory.
+#
+# UNCOMMENT THESE LINES IN THE FINAL SEPARATE-FUNCTION-FILE PRODUCT.
+# FILL IN THE PATHS WHEN READY; KEEP COMMENTED IN THE COMBINED SCRIPT.
+# ONLY UNCOMMENT AFTER MOVING THE DEFINITIONS TO THOSE FILES.
+# source("R/validators.R", local = TRUE)              # is_whole_number(), is_probability()
+# source("R/run_model.R", local = TRUE)               # run_model()
+# source("R/summarise_runs.R", local = TRUE)          # summarise_runs()
+# source("R/prepare_analysis_tables.R", local = TRUE) # prepare_analysis_tables()
+# source("R/run_sweep.R", local = TRUE)               # run_sweep()
+# source("R/check_model.R", local = TRUE)             # Original check_model()
+#
+# Do not keep duplicate definitions in simulation.R after moving them.
+# These source calls DEFINE functions; they do not execute simulations.
 
 # Validate user/model settings before running the simulation.
 is_whole_number <- function(x, minimum = 0) {
@@ -192,6 +219,7 @@ prepare_analysis_tables <- function(dat) {
 
 # EXPERIMENT HELPER: automatically vary discounting and minority size.
 # To study discounting at ONE minority size, set minority_levels = 0.15.
+# CHANGED: default TOTAL POPULATION is 1500; repetitions remain 10.
 run_sweep <- function(n_agents_levels = 100,
                       minority_levels = seq(0.15, 0.35, by = 0.05),
                       prej_discount_levels = seq(0, 1, by = 0.1),
@@ -242,6 +270,7 @@ run_sweep <- function(n_agents_levels = 100,
 }
 
 # Optional basic checks. These do not automatically run on opening the app.
+# Original check_model() retained unchanged.
 check_model <- function() {
   blocked <- run_model(prejudice_discount = 1, max_ticks = 100, seed = 123,
                        record_series = TRUE, record_every = 200)
@@ -270,6 +299,7 @@ check_model <- function() {
 }
 
 # Example console sweep after sourcing simulation.R (not auto-executed):
+# Uses the new default population of 1500; explicitly requests 50 repetitions.
 # results <- run_sweep(minority_levels = 0.15,
 #                      prej_discount_levels = seq(0, 1, by = 0.1),
 #                      n_repetitions = 50,
@@ -285,6 +315,10 @@ check_model <- function() {
 # Check model assumptions/convergence; lm may not suit bounded outcomes.
 # No statistical models or plots are executed automatically.
 
+# OPTIONAL: UNCOMMENT TO RUN THE ORIGINAL CHECKS BEFORE THE APP STARTS.
+# THIS IS OPTIONAL IN BOTH THE COMBINED AND FINAL SEPARATE-FILE PRODUCT.
+# check_model()
+
 # ===================== END OF SECTION 1 ==========================
 
 # ================================================================
@@ -292,6 +326,15 @@ check_model <- function() {
 # ================================================================
 library(shiny)
 library(bslib)
+
+# OPTIONAL FINAL TWO-FILE LOADER TEMPLATE:
+# The automatic loader below already handles the two-file arrangement.
+# If you prefer an explicit source() call, use this template instead.
+# UNCOMMENT THIS LINE IN THE FINAL TWO-FILE PRODUCT IF REPLACING THE
+# AUTOMATIC LOADER BELOW; FILL IN THE PATH WHEN READY.
+# KEEP COMMENTED IN THE COMBINED SCRIPT.
+# source("simulation.R", local = TRUE)
+# Never source app.R from inside app.R.
 
 # Combined file: Section 1 already defines these functions locally.
 # Split files: load simulation.R if local model functions are absent.
