@@ -71,7 +71,7 @@ simulate_one <- function(n_agents, minority_prop,
   
   # Detect tipping-like acceleration
   delta <- diff(support)
-  tipping_round <- NA_integer_
+  acceleration_round <- NA_integer_
   
   if (length(delta) >= 2 * TIP_WINDOW) {
     
@@ -87,7 +87,7 @@ simulate_one <- function(n_agents, minority_prop,
         after >= TIP_MULTIPLIER * max(before, 0.0005) &&
         after - before >= TIP_MIN_INCREASE
       ) {
-        tipping_round <- t
+        acceleration_round <- t
         break
       }
     }
@@ -114,12 +114,12 @@ simulate_one <- function(n_agents, minority_prop,
     changed_majority_n = adopted,
     attitude_change_prop = adopted / majority_n,
     final_support_prop = tail(support, 1),
-    tipping_reached = as.integer(!is.na(tipping_round)),
-    rounds_to_tipping = tipping_round,
+    acceleration_reached = as.integer(!is.na(acceleration_round)),
+    rounds_to_tipping = acceleration_round,
     adoption_reached = as.integer(!is.na(adoption_round)),
     rounds_to_adoption = adoption_round,
     tipping_time = ifelse(
-      is.na(tipping_round), n_round, tipping_round
+      is.na(acceleration_round), n_round, acceleration_round
     ),
     adoption_time = ifelse(
       is.na(adoption_round), n_round, adoption_round
@@ -194,7 +194,7 @@ summary_data <- dat %>%
     mean_attitude_change = mean(attitude_change_prop),
     sd_attitude_change = sd(attitude_change_prop),
     mean_final_support = mean(final_support_prop),
-    p_tipping = mean(tipping_reached),
+    p_tipping = mean(acceleration_reached),
     p_adoption = mean(adoption_reached),
     .groups = "drop"
   )
@@ -380,12 +380,12 @@ fit_logistic <- function(outcome, interaction = FALSE) {
 # H4: Tipping occurrence
 
 model_tipping_0 <- fit_logistic(
-  "tipping_reached",
+  "acceleration_reached",
   interaction = FALSE
 )
 
 model_tipping_1 <- fit_logistic(
-  "tipping_reached",
+  "acceleration_reached",
   interaction = TRUE
 )
 
@@ -465,9 +465,9 @@ fit_cox <- function(time_var, event_var, interaction = FALSE) {
 
 # Time to tipping (H4)
 
-model_cox_tipping_0 <- fit_cox("tipping_time", "tipping_reached", FALSE)
+model_cox_tipping_0 <- fit_cox("tipping_time", "acceleration_reached", FALSE)
 
-model_cox_tipping_1 <- fit_cox("tipping_time", "tipping_reached", TRUE)
+model_cox_tipping_1 <- fit_cox("tipping_time", "acceleration_reached", TRUE)
 
 # Time to adoption (H5)
 
@@ -532,7 +532,7 @@ plot_km <- function(time_var, event_var, filename, title) {
 
 plot_km(
   "tipping_time",
-  "tipping_reached",
+  "acceleration_reached",
   "KM_tipping.png",
   "Time to tipping-like acceleration"
 )
