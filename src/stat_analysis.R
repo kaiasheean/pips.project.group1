@@ -6,6 +6,7 @@ library(survival)
 
 # Load the ABM simulation functions
 source("src/simulation.R")
+source("src/validation.R")
 
 # Set directories for output folder
 data_dir <- "data"
@@ -25,22 +26,16 @@ adopt_thresh <- 0.50
 
 # Run ABM parameter sweep ------------------
 
-results <- run_sweep(
-  n_agents_levels = n_agents_levels,
-  minority_levels = minority_levels,
-  prej_discount_levels = prej_discount_levels,
-  n_repetitions = n_repetitions,
-  adoption_threshold = adopt_thresh,
-  max_ticks = max_ticks,
-  base_seed = 123,
-  record_series = FALSE,
-  output_dir = data_dir
-)
+# Load previously generated simulation results
+# Avoid rerunning all 5,500 simulations
+
+saved_results <- read.csv("data/simulation_runs.csv")
+validate_results(saved_results)
 
 
 # Prepare simulation data for statistical analysis
 
-dat <- results$runs %>%
+dat <- saved_results %>%
   rename(
     adoption_prop = final_adoption,
     adoption_reached = threshold_attained,
